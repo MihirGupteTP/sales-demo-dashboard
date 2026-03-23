@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { KPICards } from "@/components/KPICards";
+import { KPIDrillDown } from "@/components/KPIDrillDown";
 import { Leaderboard } from "@/components/Leaderboard";
 import { CalendarView } from "@/components/CalendarView";
 import { TimeFilter } from "@/components/TimeFilter";
@@ -49,6 +50,9 @@ export default function Home() {
 
         {/* KPI Cards */}
         <KPICards />
+
+        {/* Drill-down — appears when a card is clicked */}
+        <KPIDrillDown />
 
         {/* Leaderboard + Calendar */}
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]">

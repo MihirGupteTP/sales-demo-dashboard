@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { MeetingsTable } from "@/components/MeetingsTable";
 import { TimeFilter } from "@/components/TimeFilter";
 import { BarChart3, TableProperties } from "lucide-react";
@@ -46,7 +47,9 @@ export default function MeetingsPage() {
           <TimeFilter />
         </div>
 
-        <MeetingsTable />
+        <Suspense>
+          <MeetingsTable />
+        </Suspense>
       </main>
     </div>
   );

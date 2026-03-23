@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -30,8 +31,12 @@ export function MeetingsTable() {
   const { filter } = useTimeFilter();
   const { meetings: allMeetings, isLoading: meetingsLoading } = useMeetings();
   const { reps, isLoading: repsLoading } = useReps();
+  const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MeetingStatus[]>([]);
+  const [statusFilter, setStatusFilter] = useState<MeetingStatus[]>(() => {
+    const s = searchParams.get("status") as MeetingStatus | null;
+    return s && ALL_STATUSES.includes(s) ? [s] : [];
+  });
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("meetingDate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
