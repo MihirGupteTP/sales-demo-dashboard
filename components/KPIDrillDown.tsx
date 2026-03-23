@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
-import { filterMeetings, formatDateTime, formatDate, STATUS_CONFIG } from "@/lib/utils";
+import { filterMeetings, formatDateTime, STATUS_CONFIG } from "@/lib/utils";
 import { MeetingDetailSheet } from "./MeetingDetailSheet";
 import { StatusBadge } from "./StatusBadge";
 import { Meeting } from "@/types";
@@ -26,6 +26,20 @@ const STATUS_ACCENT: Record<string, string> = {
   cancelled:   "border-gray-200 bg-gray-50/50 dark:bg-gray-900/20",
   rescheduled: "border-amber-200 bg-amber-50/50 dark:bg-amber-950/20",
 };
+
+function RepCell({ name, highlight = false }: { name: string; highlight?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 self-center min-w-0">
+      <div className={cn(
+        "size-5 shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold",
+        highlight ? "bg-violet-100 text-violet-700" : "bg-primary/10 text-primary"
+      )}>
+        {name.split(" ").map((w) => w[0]).join("")}
+      </div>
+      <span className="text-xs truncate">{name}</span>
+    </div>
+  );
+}
 
 export function KPIDrillDown() {
   const { filter, clickedStatus, setClickedStatus } = useTimeFilter();
@@ -88,11 +102,12 @@ export function KPIDrillDown() {
         ) : (
           <div className="rounded-lg border border-border bg-background overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-3 py-2 border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-3 py-2 border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground">
               <span>Meeting</span>
               <span>Meeting Date</span>
-              <span>Booked On</span>
+              <span>Booked By</span>
               <span>Lead Owner</span>
+              <span>Deal Owner</span>
               <span>Deal Stage</span>
             </div>
 
@@ -102,7 +117,7 @@ export function KPIDrillDown() {
                 <button
                   key={m.id}
                   onClick={() => setSelectedMeeting(m)}
-                  className="w-full grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors"
+                  className="w-full grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors"
                 >
                   <div className="min-w-0">
                     <p className="font-medium truncate">{m.name}</p>
@@ -111,15 +126,9 @@ export function KPIDrillDown() {
                   <span className="text-xs text-muted-foreground self-center">
                     {formatDateTime(m.meetingDate)}
                   </span>
-                  <span className="text-xs text-muted-foreground self-center">
-                    {formatDate(m.bookedOn)}
-                  </span>
-                  <div className="flex items-center gap-1.5 self-center min-w-0">
-                    <div className="size-5 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-                      {m.leadOwner.split(" ").map((w) => w[0]).join("")}
-                    </div>
-                    <span className="text-xs truncate">{m.leadOwner}</span>
-                  </div>
+                  <RepCell name={m.bookedBy} highlight={m.bookedBy !== m.leadOwner} />
+                  <RepCell name={m.leadOwner} />
+                  <RepCell name={m.dealOwner} />
                   <span className="text-xs text-muted-foreground self-center truncate">
                     {m.dealStage}
                   </span>

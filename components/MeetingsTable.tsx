@@ -186,13 +186,14 @@ export function MeetingsTable() {
                 </button>
               </TableHead>
               <TableHead>Deal Owner</TableHead>
+              <TableHead>Booked By</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: 9 }).map((_, j) => (
                     <TableCell key={j}>
                       <div className="h-4 animate-pulse rounded bg-muted" style={{ width: `${60 + (j * 13) % 40}%` }} />
                     </TableCell>
@@ -201,7 +202,7 @@ export function MeetingsTable() {
               ))
             ) : meetings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                   No meetings found.
                 </TableCell>
               </TableRow>
@@ -241,6 +242,19 @@ export function MeetingsTable() {
                         {m.dealOwner.split(" ").map((w) => w[0]).join("")}
                       </div>
                       <span className="text-sm">{m.dealOwner}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <div className={cn(
+                        "size-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                        m.bookedBy === m.leadOwner
+                          ? "bg-primary/10 text-primary"
+                          : "bg-violet-100 text-violet-700"
+                      )}>
+                        {m.bookedBy.split(" ").map((w) => w[0]).join("")}
+                      </div>
+                      <span className="text-sm">{m.bookedBy}</span>
                     </div>
                   </TableCell>
                 </TableRow>

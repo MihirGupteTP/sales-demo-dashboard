@@ -64,6 +64,8 @@ function makeMeeting(meetingDate: Date, bookedDaysBeforeMeeting = 3): Meeting {
   const type = randomFrom(MEETING_TYPES);
   const leadOwner = randomRep();
   const dealOwner = Math.random() > 0.3 ? leadOwner : randomRep();
+  // ~40% of the time an SDR books the meeting for a different AE (lead owner)
+  const bookedBy = Math.random() > 0.4 ? leadOwner : randomRep();
   const bookedOn = subDays(meetingDate, Math.floor(Math.random() * bookedDaysBeforeMeeting) + 1);
   return {
     id: String(idCounter++),
@@ -74,6 +76,7 @@ function makeMeeting(meetingDate: Date, bookedDaysBeforeMeeting = 3): Meeting {
     status: makeStatus(meetingDate),
     leadStatus: randomFrom(LEAD_STATUSES),
     dealStage: randomFrom(DEAL_STAGES),
+    bookedBy,
     leadOwner,
     dealOwner,
   };

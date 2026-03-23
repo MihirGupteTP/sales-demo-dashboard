@@ -49,6 +49,7 @@ interface HubSpotMeeting {
     hs_meeting_outcome?: string;
     hs_meeting_external_url?: string;
     hs_meeting_body?: string;
+    hubspot_owner_id?: string; // the rep who owns / booked the meeting
   };
   associations?: {
     contacts?: { results: { id: string }[] };
@@ -145,6 +146,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
         'hs_meeting_outcome',
         'hs_meeting_external_url',
         'hs_meeting_body',
+        'hubspot_owner_id',
       ],
       associations: ['contacts', 'deals'],
       limit: 100,
@@ -191,6 +193,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       ? [contact.properties.firstname, contact.properties.lastname].filter(Boolean).join(' ') || 'Unknown Contact'
       : 'Unknown Contact';
     const company = contact?.properties.company ?? '';
+    const bookedByOwnerId = p.hubspot_owner_id; // meeting's own owner = who booked it
     const leadOwnerId = contact?.properties.hubspot_owner_id;
     const dealOwnerId = deal?.properties.hubspot_owner_id;
     const leadStatus = contact?.properties.lifecyclestage ?? '';
@@ -210,6 +213,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       status,
       leadStatus,
       dealStage,
+      bookedBy: ownerMap.get(bookedByOwnerId ?? '') ?? ownerMap.get(leadOwnerId ?? '') ?? 'Unassigned',
       leadOwner: ownerMap.get(leadOwnerId ?? '') ?? contactName,
       dealOwner: ownerMap.get(dealOwnerId ?? '') ?? ownerMap.get(leadOwnerId ?? '') ?? 'Unassigned',
       notes: p.hs_meeting_body,

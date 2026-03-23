@@ -9,6 +9,7 @@ export interface Meeting {
   status: MeetingStatus;
   leadStatus: string;
   dealStage: string;
+  bookedBy: string;
   leadOwner: string;
   dealOwner: string;
   notes?: string;

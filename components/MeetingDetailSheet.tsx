@@ -86,6 +86,11 @@ export function MeetingDetailSheet({ meeting, onClose }: Props) {
                 />
                 <DetailRow
                   icon={<User className="size-4" />}
+                  label="Booked By"
+                  value={meeting.bookedBy}
+                />
+                <DetailRow
+                  icon={<User className="size-4" />}
                   label="Lead Owner"
                   value={meeting.leadOwner}
                 />
