@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { KPICards } from "@/components/KPICards";
-import { Leaderboard } from "@/components/Leaderboard";
-import { CalendarView } from "@/components/CalendarView";
+import { MeetingsTable } from "@/components/MeetingsTable";
 import { TimeFilter } from "@/components/TimeFilter";
 import { BarChart3, TableProperties } from "lucide-react";
 
-export default function Home() {
+export default function MeetingsPage() {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header */}
@@ -19,14 +17,14 @@ export default function Home() {
             <nav className="flex items-center gap-1">
               <Link
                 href="/"
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium bg-muted text-foreground"
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <BarChart3 className="size-3.5" />
                 Dashboard
               </Link>
               <Link
                 href="/meetings"
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium bg-muted text-foreground"
               >
                 <TableProperties className="size-3.5" />
                 All Meetings
@@ -38,23 +36,17 @@ export default function Home() {
 
       {/* Main */}
       <main className="flex-1 mx-auto w-full max-w-screen-xl px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-        {/* Page title + filter */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-xl font-semibold">Overview</h2>
-            <p className="text-sm text-muted-foreground">Demo meeting performance across the team</p>
+            <h2 className="text-xl font-semibold">All Meetings</h2>
+            <p className="text-sm text-muted-foreground">
+              Full drill-down view — click any row for details
+            </p>
           </div>
           <TimeFilter />
         </div>
 
-        {/* KPI Cards */}
-        <KPICards />
-
-        {/* Leaderboard + Calendar */}
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]">
-          <Leaderboard />
-          <CalendarView />
-        </div>
+        <MeetingsTable />
       </main>
     </div>
   );
