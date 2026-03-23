@@ -1,7 +1,6 @@
-import useSWR from 'swr';
+// MOCK MODE — swap this import for the SWR version below when going live
+import { MEETINGS } from '@/lib/mock-data';
 import { Meeting } from '@/types';
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export interface MeetingsResponse {
   meetings: Meeting[];
@@ -10,15 +9,27 @@ export interface MeetingsResponse {
 }
 
 export function useMeetings() {
+  return {
+    meetings: MEETINGS,
+    updatedAt: new Date().toISOString(),
+    isLoading: false,
+    isError: false,
+    errorMessage: undefined,
+    refresh: () => {},
+  };
+}
+
+/* ── Live version (uncomment when API credentials are ready) ──────────────
+import useSWR from 'swr';
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+export function useMeetings() {
   const { data, error, isLoading, mutate } = useSWR<MeetingsResponse>(
     '/api/meetings',
     fetcher,
-    {
-      refreshInterval: 5 * 60 * 1000, // re-fetch every 5 minutes
-      revalidateOnFocus: false,
-    }
+    { refreshInterval: 5 * 60 * 1000, revalidateOnFocus: false }
   );
-
   return {
     meetings: data?.meetings ?? [],
     updatedAt: data?.updatedAt,
@@ -28,3 +39,4 @@ export function useMeetings() {
     refresh: mutate,
   };
 }
+──────────────────────────────────────────────────────────────────────────── */
