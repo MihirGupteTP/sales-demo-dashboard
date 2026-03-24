@@ -148,6 +148,8 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
             // Date window: Feb 1 2026 → 14 days ahead
             { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(DATE_FROM) },
             { propertyName: 'hs_meeting_start_time', operator: 'LTE', value: String(dateTo) },
+            // Demo meetings only
+            { propertyName: 'hs_activity_type', operator: 'EQ', value: 'Demo' },
             // Zoom meetings only
             { propertyName: 'hs_video_conference_url', operator: 'HAS_PROPERTY' },
             // Sales reps only
@@ -161,6 +163,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
         'hs_createdate',
         'hs_meeting_outcome',
         'hs_video_conference_url',
+        'hs_activity_type',
         'hubspot_owner_id',
         'hs_attendee_owner_ids',
       ],
