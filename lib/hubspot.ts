@@ -29,11 +29,19 @@ export async function fetchHubSpotOwners(): Promise<Rep[]> {
   });
   if (!res.ok) throw new Error(`HubSpot owners: ${res.status} ${await res.text()}`);
   const data = await res.json();
-  return (data.results as HubSpotOwner[]).map((o) => ({
-    id: o.id,
-    name: [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
-    initials: [o.firstName?.[0], o.lastName?.[0]].filter(Boolean).join('').toUpperCase() || o.email.slice(0, 2).toUpperCase(),
-  }));
+  return (data.results as HubSpotOwner[]).map((o) => {
+    const teams: string[] = (o as any).teams?.map((t: any) => t.name as string) ?? [];
+    const team: Rep['team'] =
+      teams.some((t) => t.startsWith('Sales - SME')) ? 'SME' :
+      teams.some((t) => t.startsWith('Sales - OO'))  ? 'OO'  :
+      'Manager';
+    return {
+      id: o.id,
+      name: [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
+      initials: [o.firstName?.[0], o.lastName?.[0]].filter(Boolean).join('').toUpperCase() || o.email.slice(0, 2).toUpperCase(),
+      team,
+    };
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

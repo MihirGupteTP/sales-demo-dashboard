@@ -8,7 +8,7 @@ import {
 import { filterMeetings, computeRepStats } from "@/lib/utils";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
-import { RepStats } from "@/types";
+import { RepStats, SalesTeam } from "@/types";
 import { ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
@@ -51,15 +51,18 @@ export function Leaderboard() {
   const { meetings: allMeetings, isLoading } = useMeetings();
   const [sortKey, setSortKey] = useState<SortKey>("attended");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
+  const [teamTab, setTeamTab] = useState<SalesTeam | "All">("All");
 
   const repStats = useMemo(() => {
     const meetings = filterMeetings(allMeetings, filter);
-    return computeRepStats(meetings).sort((a, b) => {
-      const av = a[sortKey] as number;
-      const bv = b[sortKey] as number;
-      return bv - av;
-    });
-  }, [allMeetings, filter, sortKey]);
+    return computeRepStats(meetings)
+      .filter((s) => teamTab === "All" || s.rep.team === teamTab)
+      .sort((a, b) => {
+        const av = a[sortKey] as number;
+        const bv = b[sortKey] as number;
+        return bv - av;
+      });
+  }, [allMeetings, filter, sortKey, teamTab]);
 
   const repMeetings = useMemo(() => {
     const meetings = filterMeetings(allMeetings, filter);
@@ -95,9 +98,27 @@ export function Leaderboard() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Trophy className="size-4 text-amber-500" />
-          <CardTitle>Rep Leaderboard</CardTitle>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <Trophy className="size-4 text-amber-500" />
+            <CardTitle>Rep Leaderboard</CardTitle>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1">
+            {(["All", "SME", "OO", "Manager"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setTeamTab(tab)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                  teamTab === tab
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab === "All" ? "All" : tab === "Manager" ? "Managers" : `${tab} Team`}
+              </button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -139,6 +160,16 @@ export function Leaderboard() {
                         {s.rep.initials}
                       </div>
                       <span className="font-medium">{s.rep.name}</span>
+                      {teamTab === "All" && (
+                        <span className={cn(
+                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                          s.rep.team === "SME" ? "bg-blue-100 text-blue-700" :
+                          s.rep.team === "OO"  ? "bg-violet-100 text-violet-700" :
+                                                 "bg-amber-100 text-amber-700"
+                        )}>
+                          {s.rep.team}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="tabular-nums">{s.booked}</TableCell>

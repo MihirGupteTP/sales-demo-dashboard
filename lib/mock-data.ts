@@ -2,14 +2,20 @@ import { Meeting, Rep } from '@/types';
 import { subDays, addDays, subMonths, format } from 'date-fns';
 
 export const REPS: Rep[] = [
-  { id: '1', name: 'Sarah Chen', initials: 'SC' },
-  { id: '2', name: 'Marcus Webb', initials: 'MW' },
-  { id: '3', name: 'Priya Patel', initials: 'PP' },
-  { id: '4', name: 'Jake Torres', initials: 'JT' },
-  { id: '5', name: 'Leah Nguyen', initials: 'LN' },
-  { id: '6', name: 'Devon Clark', initials: 'DC' },
-  { id: '7', name: 'Amir Hassan', initials: 'AH' },
-  { id: '8', name: 'Riley Moore', initials: 'RM' },
+  // Sales Managers
+  { id: 'm1', name: 'RJ Dorin',              initials: 'RD', team: 'Manager' },
+  { id: 'm2', name: 'Ric Bernardino',        initials: 'RB', team: 'Manager' },
+  // SME (Small-Medium Enterprise)
+  { id: 's1', name: 'Paul Martinez',         initials: 'PM', team: 'SME' },
+  { id: 's2', name: 'John Michael Inocencio',initials: 'JI', team: 'SME' },
+  { id: 's3', name: 'Maria Cristina Calayag',initials: 'MC', team: 'SME' },
+  { id: 's4', name: 'Kisha Guatlo',          initials: 'KG', team: 'SME' },
+  // OO (Owner Operators)
+  { id: 'o1', name: 'Anferny Louie Martinez',initials: 'AL', team: 'OO' },
+  { id: 'o2', name: 'Oscar Velasco',         initials: 'OV', team: 'OO' },
+  { id: 'o3', name: 'Marvin Aguilar',        initials: 'MA', team: 'OO' },
+  { id: 'o4', name: 'Marron Jarabejo',       initials: 'MJ', team: 'OO' },
+  { id: 'o5', name: 'Nicole Detuelo',        initials: 'ND', team: 'OO' },
 ];
 
 const repNames = REPS.map((r) => r.name);

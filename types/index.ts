@@ -16,10 +16,13 @@ export interface Meeting {
   zoomMeetingUrl?: string;
 }
 
+export type SalesTeam = 'SME' | 'OO' | 'Manager';
+
 export interface Rep {
   id: string;
   name: string;
   initials: string;
+  team: SalesTeam;
 }
 
 export type TimeRange = 'today' | 'week' | 'month' | 'custom';
