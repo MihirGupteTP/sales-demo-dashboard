@@ -8,6 +8,7 @@ import {
 import { filterMeetings, computeRepStats } from "@/lib/utils";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { useReps } from "@/lib/hooks/use-reps";
 import { RepStats, SalesTeam } from "@/types";
 import { ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -48,21 +49,23 @@ function LeaderboardSkeleton() {
 
 export function Leaderboard() {
   const { filter } = useTimeFilter();
-  const { meetings: allMeetings, isLoading } = useMeetings();
+  const { meetings: allMeetings, isLoading: meetingsLoading } = useMeetings();
+  const { reps, isLoading: repsLoading } = useReps();
+  const isLoading = meetingsLoading || repsLoading;
   const [sortKey, setSortKey] = useState<SortKey>("attended");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
   const [teamTab, setTeamTab] = useState<SalesTeam | "All">("All");
 
   const repStats = useMemo(() => {
     const meetings = filterMeetings(allMeetings, filter);
-    return computeRepStats(meetings)
+    return computeRepStats(meetings, reps)
       .filter((s) => teamTab === "All" || s.rep.team === teamTab)
       .sort((a, b) => {
         const av = a[sortKey] as number;
         const bv = b[sortKey] as number;
         return bv - av;
       });
-  }, [allMeetings, filter, sortKey, teamTab]);
+  }, [allMeetings, reps, filter, sortKey, teamTab]);
 
   const repMeetings = useMemo(() => {
     const meetings = filterMeetings(allMeetings, filter);

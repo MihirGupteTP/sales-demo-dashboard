@@ -5,8 +5,7 @@ import {
   startOfMonth, endOfMonth, parseISO, isWithinInterval,
   format
 } from 'date-fns';
-import { Meeting, DateFilter, MeetingStatus, RepStats } from '@/types';
-import { REPS } from './mock-data';
+import { Meeting, DateFilter, MeetingStatus, RepStats, Rep } from '@/types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -44,11 +43,11 @@ export const STATUS_CONFIG: Record<MeetingStatus, { label: string; className: st
   rescheduled: { label: 'Rescheduled', className: 'bg-amber-100 text-amber-700 border-amber-200' },
 };
 
-export function computeRepStats(meetings: Meeting[]): RepStats[] {
+export function computeRepStats(meetings: Meeting[], reps: Rep[]): RepStats[] {
   const now = new Date();
   const stats: Record<string, RepStats> = {};
 
-  for (const rep of REPS) {
+  for (const rep of reps) {
     stats[rep.name] = {
       rep,
       booked: 0,
