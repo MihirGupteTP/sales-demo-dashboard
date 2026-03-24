@@ -148,8 +148,9 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
             // Date window: Feb 1 2026 → 14 days ahead
             { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(DATE_FROM) },
             { propertyName: 'hs_meeting_start_time', operator: 'LTE', value: String(dateTo) },
-            // Demo meetings only
-            { propertyName: 'hs_activity_type', operator: 'EQ', value: 'Demo' },
+            // Exclude non-demo meeting types (Followup, Onboarding, etc.)
+            // Blank type is included — reps often leave it unset on real demos
+            { propertyName: 'hs_activity_type', operator: 'NOT_IN', values: ['Followup', 'Onboarding', 'Call'] },
             // Zoom meetings only
             { propertyName: 'hs_video_conference_url', operator: 'HAS_PROPERTY' },
             // Sales reps only
