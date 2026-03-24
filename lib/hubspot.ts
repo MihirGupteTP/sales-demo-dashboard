@@ -84,7 +84,8 @@ interface HubSpotMeeting {
     hs_meeting_start_time?: string;
     hs_createdate?: string;
     hs_meeting_outcome?: string;
-    hs_video_conference_url?: string;   // ← correct field (not hs_meeting_external_url)
+    hs_video_conference_url?: string;
+    hs_activity_type?: string;
     hubspot_owner_id?: string;
     hs_attendee_owner_ids?: string;
   };
@@ -148,9 +149,6 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
             // Date window: Feb 1 2026 → 14 days ahead
             { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(DATE_FROM) },
             { propertyName: 'hs_meeting_start_time', operator: 'LTE', value: String(dateTo) },
-            // Exclude non-demo meeting types (Followup, Onboarding, etc.)
-            // Blank type is included — reps often leave it unset on real demos
-            { propertyName: 'hs_activity_type', operator: 'NOT_IN', values: ['Followup', 'Onboarding', 'Call'] },
             // Zoom meetings only
             { propertyName: 'hs_video_conference_url', operator: 'HAS_PROPERTY' },
             // Sales reps only
@@ -183,27 +181,44 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
     after = data.paging?.next?.after;
   } while (after);
 
-  return rawMeetings.map((m): Meeting => {
+  const normalized: Meeting[] = [];
+
+  for (const m of rawMeetings) {
     const p = m.properties;
+    const activityType = p.hs_activity_type ?? '';
+    const title = p.hs_meeting_title ?? '';
+    const titleHasDemo = title.toLowerCase().includes('demo');
+
+    // Include:
+    //   1. Explicitly typed as Demo — clean
+    //   2. No type set — include but flag (reps often leave blank on real demos)
+    // Exclude: any other explicit type (Followup, Call, Onboarding, etc.)
+    const NON_DEMO_TYPES = ['Followup', 'Call', 'Onboarding'];
+    const isExplicitDemo = activityType === 'Demo';
+    const isBlankType    = !activityType;
+    if (!isExplicitDemo && !isBlankType) continue;
+
     const ownerId = p.hubspot_owner_id ?? '';
     const hubspotOutcome = (p.hs_meeting_outcome ?? '').toUpperCase();
     const status: MeetingStatus = OUTCOME_MAP[hubspotOutcome] ?? 'booked';
-    const prospectName = extractProspectName(p.hs_meeting_title ?? '');
+    const prospectName = extractProspectName(title);
 
-    return {
+    normalized.push({
       id: m.id,
-      name: p.hs_meeting_title ?? prospectName,
+      name: title || prospectName,
       company: prospectName,
       bookedOn: parseHubSpotDate(p.hs_createdate),
       meetingDate: parseHubSpotDate(p.hs_meeting_start_time),
       status,
-      leadStatus: '',    // no contact associations in HubSpot for these meetings
-      dealStage: '',     // no deal associations in HubSpot for these meetings
-      // bookedBy will be overwritten by Zoom host_email in enrichWithZoomData
+      leadStatus: '',
+      dealStage: '',
       bookedBy: ownerIdToName.get(ownerId) ?? 'Unassigned',
       leadOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
       dealOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
       zoomMeetingUrl: p.hs_video_conference_url,
-    };
-  });
+      needsTypeSet: isBlankType,
+    });
+  }
+
+  return normalized;
 }

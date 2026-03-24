@@ -14,6 +14,7 @@ export interface Meeting {
   dealOwner: string;
   notes?: string;
   zoomMeetingUrl?: string;
+  needsTypeSet?: boolean;  // true when matched by title but hs_activity_type is blank
 }
 
 export type SalesTeam = 'SME' | 'OO' | 'Manager';

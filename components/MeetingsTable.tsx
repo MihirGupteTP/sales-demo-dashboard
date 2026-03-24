@@ -217,6 +217,11 @@ export function MeetingsTable() {
                     <div>
                       <p className="font-medium">{m.name}</p>
                       <p className="text-xs text-muted-foreground">{m.company}</p>
+                      {m.needsTypeSet && (
+                        <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                          ⚠ Set type → Demo in HubSpot
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(m.bookedOn)}</TableCell>

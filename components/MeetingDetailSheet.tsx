@@ -38,6 +38,11 @@ export function MeetingDetailSheet({ meeting, onClose }: Props) {
                 <span className="flex items-center gap-2 flex-wrap">
                   <StatusBadge status={meeting.status} />
                   <span className="text-xs text-muted-foreground">{meeting.company}</span>
+                  {meeting.needsTypeSet && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                      ⚠ Set meeting type to Demo in HubSpot
+                    </span>
+                  )}
                 </span>
               </SheetDescription>
             </SheetHeader>
