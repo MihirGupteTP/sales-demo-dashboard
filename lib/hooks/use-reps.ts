@@ -1,17 +1,5 @@
-// MOCK MODE — swap this import for the SWR version below when going live
-import { REPS } from '@/lib/mock-data';
-import { Rep } from '@/types';
-
-export function useReps() {
-  return {
-    reps: REPS,
-    isLoading: false,
-    isError: false,
-  };
-}
-
-/* ── Live version (uncomment when API credentials are ready) ──────────────
 import useSWR from 'swr';
+import { Rep } from '@/types';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -27,4 +15,3 @@ export function useReps() {
     isError: !!error || !!data?.error,
   };
 }
-──────────────────────────────────────────────────────────────────────────── */

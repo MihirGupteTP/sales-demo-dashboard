@@ -2,13 +2,11 @@ import { Meeting, MeetingStatus } from '@/types';
 import { parseISO } from 'date-fns';
 
 const ZOOM_BASE = 'https://api.zoom.us/v2';
-const ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID;
-const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
+const ACCOUNT_ID   = process.env.ZOOM_ACCOUNT_ID;
+const CLIENT_ID    = process.env.ZOOM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 
-// ────────────────────────────────────────────────────────────────────────────
-// Token cache (module-level, reused within one server process until expiry)
-// ────────────────────────────────────────────────────────────────────────────
+// ── Token cache (module-level, 1h TTL) ───────────────────────────────────────
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
@@ -17,7 +15,6 @@ export async function getZoomAccessToken(): Promise<string> {
   if (!ACCOUNT_ID || !CLIENT_ID || !CLIENT_SECRET) {
     throw new Error('Zoom credentials not configured');
   }
-
   const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const res = await fetch(
     `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`,
@@ -29,7 +26,6 @@ export async function getZoomAccessToken(): Promise<string> {
       },
     }
   );
-
   if (!res.ok) throw new Error(`Zoom OAuth failed: ${res.status} ${await res.text()}`);
   const data = await res.json();
   cachedToken = data.access_token;
@@ -37,86 +33,94 @@ export async function getZoomAccessToken(): Promise<string> {
   return cachedToken!;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Extract Zoom meeting ID from a Zoom URL
-// e.g. https://zoom.us/j/12345678901 or https://company.zoom.us/j/12345678901?pwd=xxx
-// ────────────────────────────────────────────────────────────────────────────
+// ── Extract Zoom meeting ID from URL ─────────────────────────────────────────
 export function extractZoomMeetingId(url: string): string | null {
   const match = url.match(/\/j\/(\d{9,11})/);
   return match ? match[1] : null;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Fetch meeting participants from Zoom Reports API
-// Returns number of non-host participants who joined
-// ────────────────────────────────────────────────────────────────────────────
-async function getExternalParticipantCount(meetingId: string, token: string): Promise<number> {
+// ── Fetch who hosted (booked) a Zoom meeting ─────────────────────────────────
+async function getZoomMeetingHost(meetingId: string, token: string): Promise<string | null> {
+  const res = await fetch(`${ZOOM_BASE}/meetings/${meetingId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Zoom meeting ${meetingId}: ${res.status}`);
+  const data = await res.json();
+  return (data.host_email as string | undefined)?.toLowerCase() ?? null;
+}
+
+// ── Fetch participant count for a past meeting ────────────────────────────────
+// Returns total attendees; the Zoom host is always participant[0],
+// so >= 2 means at least one external person joined.
+async function getParticipantCount(meetingId: string, token: string): Promise<number | null> {
   const res = await fetch(
     `${ZOOM_BASE}/report/meetings/${meetingId}/participants?page_size=300`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-
-  // 404 = meeting not found in reports (too old, or never ended)
-  if (res.status === 404) return 0;
+  if (res.status === 404) return null;   // data expired or meeting never ended
   if (!res.ok) throw new Error(`Zoom participants ${meetingId}: ${res.status}`);
-
   const data = await res.json();
-  const participants: { user_email?: string; id?: string }[] = data.participants ?? [];
-
-  // Filter out the host (no email usually means host in many setups; or compare against known host list)
-  // Conservative approach: count everyone who joined; host is always present so subtract 1 if > 0
-  return Math.max(0, participants.length - 1);
+  return (data.participants ?? []).length as number;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Enrich a list of meetings with Zoom attendance data
-// Only processes past meetings that have a Zoom URL
-// ────────────────────────────────────────────────────────────────────────────
-export async function enrichWithZoomAttendance(meetings: Meeting[]): Promise<Meeting[]> {
-  const now = new Date();
-
-  // Skip if Zoom is not configured
+// ── Main enrichment function ──────────────────────────────────────────────────
+// For every meeting:
+//   • host_email → bookedBy (Zoom is source of truth for who booked the meeting)
+// For past meetings only (not cancelled/rescheduled):
+//   • participant count ≥ 2 → attended   (host + at least 1 external)
+//   • participant count < 2  → no_show
+//   • null (data expired)    → keep HubSpot outcome
+export async function enrichWithZoomData(
+  meetings: Meeting[],
+  emailToRepName: Map<string, string>
+): Promise<Meeting[]> {
   if (!ACCOUNT_ID || !CLIENT_ID || !CLIENT_SECRET) return meetings;
 
   let token: string;
   try {
     token = await getZoomAccessToken();
   } catch {
-    // Zoom unavailable — return meetings with HubSpot statuses unchanged
-    console.warn('Zoom auth failed, skipping attendance enrichment');
+    console.warn('Zoom auth failed, skipping enrichment');
     return meetings;
   }
 
+  const now = new Date();
   const enriched = [...meetings];
 
-  // Build tasks only for past meetings that have a Zoom URL and aren't already cancelled/rescheduled
   const tasks = enriched
     .map((m, idx) => ({ m, idx }))
-    .filter(({ m }) => {
-      const isPast = parseISO(m.meetingDate) < now;
-      const hasZoom = !!m.zoomMeetingUrl;
-      const notTerminal = m.status !== 'cancelled' && m.status !== 'rescheduled';
-      return isPast && hasZoom && notTerminal;
-    });
+    .filter(({ m }) => !!m.zoomMeetingUrl);
 
-  // Run all Zoom calls in parallel; individual failures don't break the response
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     tasks.map(async ({ m, idx }) => {
       const meetingId = extractZoomMeetingId(m.zoomMeetingUrl!);
       if (!meetingId) return;
 
-      const externalCount = await getExternalParticipantCount(meetingId, token);
-      const newStatus: MeetingStatus = externalCount >= 1 ? 'attended' : 'no_show';
-      enriched[idx] = { ...enriched[idx], status: newStatus };
+      const isPast = parseISO(m.meetingDate) < now;
+      const isTerminal = m.status === 'cancelled' || m.status === 'rescheduled';
+
+      // Always try to get host for bookedBy
+      const hostEmail = await getZoomMeetingHost(meetingId, token);
+      const bookedBy = hostEmail
+        ? (emailToRepName.get(hostEmail) ?? m.bookedBy)
+        : m.bookedBy;
+
+      let status: MeetingStatus = m.status;
+
+      // Determine attendance for past, non-terminal meetings
+      if (isPast && !isTerminal) {
+        const count = await getParticipantCount(meetingId, token);
+        if (count !== null) {
+          // count >= 2: host + at least one external person joined
+          status = count >= 2 ? 'attended' : 'no_show';
+        }
+        // null = Zoom data expired; keep HubSpot status
+      }
+
+      enriched[idx] = { ...enriched[idx], bookedBy, status };
     })
   );
-
-  // Log any individual Zoom failures (non-fatal)
-  for (const result of results) {
-    if (result.status === 'rejected') {
-      console.warn('Zoom enrichment error (non-fatal):', result.reason);
-    }
-  }
 
   return enriched;
 }

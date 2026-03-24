@@ -1,8 +1,13 @@
 import { Meeting, Rep, MeetingStatus } from '@/types';
-import { subDays, addDays } from 'date-fns';
+import { addDays } from 'date-fns';
 
 const BASE = 'https://api.hubapi.com';
 const TOKEN = process.env.HUBSPOT_PRIVATE_APP_TOKEN;
+
+// Only consider meetings booked on or after this date
+const DATE_FROM = new Date('2026-02-01T00:00:00.000Z').getTime();
+
+const SALES_TEAM_PREFIXES = ['Sales - SME', 'Sales - OO', 'Sales Managers'];
 
 function hubspotHeaders() {
   return {
@@ -11,41 +16,65 @@ function hubspotHeaders() {
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Owners (HubSpot users / reps)
-// ────────────────────────────────────────────────────────────────────────────
-
 interface HubSpotOwner {
   id: string;
-  firstName: string;
-  lastName: string;
+  userId?: number;
+  firstName?: string;
+  lastName?: string;
   email: string;
+  teams?: { id: string; name: string }[];
 }
 
-export async function fetchHubSpotOwners(): Promise<Rep[]> {
+function isSalesOwner(o: HubSpotOwner): boolean {
+  return (o.teams ?? []).some((t) =>
+    SALES_TEAM_PREFIXES.some((prefix) => t.name.startsWith(prefix))
+  );
+}
+
+function ownerToRep(o: HubSpotOwner): Rep {
+  const teams = (o.teams ?? []).map((t) => t.name);
+  const team: Rep['team'] =
+    teams.some((t) => t.startsWith('Sales - SME')) ? 'SME' :
+    teams.some((t) => t.startsWith('Sales - OO'))  ? 'OO'  :
+    'Manager';
+  return {
+    id: o.id,
+    name: [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
+    initials: [o.firstName?.[0], o.lastName?.[0]].filter(Boolean).join('').toUpperCase()
+      || o.email.slice(0, 2).toUpperCase(),
+    team,
+  };
+}
+
+async function fetchAllOwners(): Promise<HubSpotOwner[]> {
   const res = await fetch(`${BASE}/crm/v3/owners?limit=100`, {
     headers: hubspotHeaders(),
     next: { revalidate: 300 },
   });
   if (!res.ok) throw new Error(`HubSpot owners: ${res.status} ${await res.text()}`);
   const data = await res.json();
-  return (data.results as HubSpotOwner[]).map((o) => {
-    const teams: string[] = (o as any).teams?.map((t: any) => t.name as string) ?? [];
-    const team: Rep['team'] =
-      teams.some((t) => t.startsWith('Sales - SME')) ? 'SME' :
-      teams.some((t) => t.startsWith('Sales - OO'))  ? 'OO'  :
-      'Manager';
-    return {
-      id: o.id,
-      name: [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
-      initials: [o.firstName?.[0], o.lastName?.[0]].filter(Boolean).join('').toUpperCase() || o.email.slice(0, 2).toUpperCase(),
-      team,
-    };
-  });
+  return data.results as HubSpotOwner[];
+}
+
+// For /api/reps — only sales team members
+export async function fetchHubSpotOwners(): Promise<Rep[]> {
+  const all = await fetchAllOwners();
+  return all.filter(isSalesOwner).map(ownerToRep);
+}
+
+// For zoom.ts enrichment — map host email → rep name
+export async function fetchOwnerEmailToNameMap(): Promise<Map<string, string>> {
+  const all = await fetchAllOwners();
+  const map = new Map<string, string>();
+  for (const o of all) {
+    const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email;
+    if (o.email) map.set(o.email.toLowerCase(), name);
+  }
+  return map;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Meetings (paginated search with associations)
+// Meetings
 // ────────────────────────────────────────────────────────────────────────────
 
 interface HubSpotMeeting {
@@ -55,85 +84,59 @@ interface HubSpotMeeting {
     hs_meeting_start_time?: string;
     hs_createdate?: string;
     hs_meeting_outcome?: string;
-    hs_meeting_external_url?: string;
-    hs_meeting_body?: string;
-    hubspot_owner_id?: string; // the rep who owns / booked the meeting
-  };
-  associations?: {
-    contacts?: { results: { id: string }[] };
-    deals?: { results: { id: string }[] };
-  };
-}
-
-interface HubSpotContact {
-  id: string;
-  properties: {
-    firstname?: string;
-    lastname?: string;
-    company?: string;
+    hs_video_conference_url?: string;   // ← correct field (not hs_meeting_external_url)
     hubspot_owner_id?: string;
-    lifecyclestage?: string;
+    hs_attendee_owner_ids?: string;
   };
 }
 
-interface HubSpotDeal {
-  id: string;
-  properties: {
-    dealname?: string;
-    dealstage?: string;
-    hubspot_owner_id?: string;
-  };
+// HubSpot date fields come back as millisecond-epoch strings or ISO strings
+function parseHubSpotDate(raw: string | undefined): string {
+  if (!raw) return new Date().toISOString();
+  // Try as ms epoch first (HubSpot timestamps)
+  const asMs = Number(raw);
+  if (!isNaN(asMs) && asMs > 1_000_000_000_000) {
+    return new Date(asMs).toISOString();
+  }
+  // Fall back to ISO string parse
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+// HubSpot uses CANCELED (one L); our type uses 'cancelled'
 const OUTCOME_MAP: Record<string, MeetingStatus> = {
-  SCHEDULED: 'booked',
-  COMPLETED: 'attended',
-  NO_SHOW: 'no_show',
-  CANCELLED: 'cancelled',
+  SCHEDULED:   'booked',
+  COMPLETED:   'attended',
+  NO_SHOW:     'no_show',
+  CANCELLED:   'cancelled',
+  CANCELED:    'cancelled',
   RESCHEDULED: 'rescheduled',
 };
 
-async function batchFetchContacts(ids: string[]): Promise<Map<string, HubSpotContact>> {
-  if (ids.length === 0) return new Map();
-  const res = await fetch(`${BASE}/crm/v3/objects/contacts/batch/read`, {
-    method: 'POST',
-    headers: hubspotHeaders(),
-    body: JSON.stringify({
-      inputs: ids.map((id) => ({ id })),
-      properties: ['firstname', 'lastname', 'company', 'hubspot_owner_id', 'lifecyclestage'],
-    }),
-  });
-  if (!res.ok) return new Map();
-  const data = await res.json();
-  const map = new Map<string, HubSpotContact>();
-  for (const c of data.results ?? []) map.set(c.id, c);
-  return map;
-}
-
-async function batchFetchDeals(ids: string[]): Promise<Map<string, HubSpotDeal>> {
-  if (ids.length === 0) return new Map();
-  const res = await fetch(`${BASE}/crm/v3/objects/deals/batch/read`, {
-    method: 'POST',
-    headers: hubspotHeaders(),
-    body: JSON.stringify({
-      inputs: ids.map((id) => ({ id })),
-      properties: ['dealname', 'dealstage', 'hubspot_owner_id'],
-    }),
-  });
-  if (!res.ok) return new Map();
-  const data = await res.json();
-  const map = new Map<string, HubSpotDeal>();
-  for (const d of data.results ?? []) map.set(d.id, d);
-  return map;
+// Extract prospect / company name from HubSpot meeting title
+// Handles patterns like "John Smith <> Trucker Path Demo" and "Demo: Acme Corp <> Trucker Path"
+function extractProspectName(title: string): string {
+  const beforeArrow = title.split('<>')[0];
+  return beforeArrow
+    .replace(/^(Demo:|Meeting:|Follow-up Demo:|Update:|Canceled:|Cancelled:)\s*/i, '')
+    .trim() || title;
 }
 
 export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
   if (!TOKEN) throw new Error('HUBSPOT_PRIVATE_APP_TOKEN is not set');
 
-  const dateFrom = subDays(new Date(), 90).getTime();
+  // Get all owners to build maps and derive sales rep filter IDs
+  const allOwners = await fetchAllOwners();
+  const ownerIdToName = new Map(
+    allOwners.map((o) => [
+      o.id,
+      [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
+    ])
+  );
+  const salesOwnerIds = allOwners.filter(isSalesOwner).map((o) => o.id);
+
   const dateTo = addDays(new Date(), 14).getTime();
 
-  // Paginate through all meetings in the window
   const rawMeetings: HubSpotMeeting[] = [];
   let after: string | undefined;
 
@@ -142,8 +145,13 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       filterGroups: [
         {
           filters: [
-            { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(dateFrom) },
+            // Date window: Feb 1 2026 → 14 days ahead
+            { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(DATE_FROM) },
             { propertyName: 'hs_meeting_start_time', operator: 'LTE', value: String(dateTo) },
+            // Zoom meetings only
+            { propertyName: 'hs_video_conference_url', operator: 'HAS_PROPERTY' },
+            // Sales reps only
+            { propertyName: 'hubspot_owner_id', operator: 'IN', values: salesOwnerIds },
           ],
         },
       ],
@@ -152,11 +160,10 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
         'hs_meeting_start_time',
         'hs_createdate',
         'hs_meeting_outcome',
-        'hs_meeting_external_url',
-        'hs_meeting_body',
+        'hs_video_conference_url',
         'hubspot_owner_id',
+        'hs_attendee_owner_ids',
       ],
-      associations: ['contacts', 'deals'],
       limit: 100,
     };
     if (after) body.after = after;
@@ -166,68 +173,33 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       headers: hubspotHeaders(),
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`HubSpot meetings search: ${res.status} ${await res.text()}`);
+    if (!res.ok) throw new Error(`HubSpot meetings: ${res.status} ${await res.text()}`);
     const data = await res.json();
     rawMeetings.push(...(data.results ?? []));
     after = data.paging?.next?.after;
   } while (after);
 
-  // Collect unique contact + deal IDs
-  const contactIds = new Set<string>();
-  const dealIds = new Set<string>();
-  for (const m of rawMeetings) {
-    for (const c of m.associations?.contacts?.results ?? []) contactIds.add(c.id);
-    for (const d of m.associations?.deals?.results ?? []) dealIds.add(d.id);
-  }
-
-  // Batch fetch contacts, deals, and owners in parallel
-  const [contacts, deals, owners] = await Promise.all([
-    batchFetchContacts([...contactIds]),
-    batchFetchDeals([...dealIds]),
-    fetchHubSpotOwners(),
-  ]);
-
-  const ownerMap = new Map<string, string>(owners.map((o) => [o.id, o.name]));
-
-  // Normalize
-  const meetings: Meeting[] = rawMeetings.map((m) => {
+  return rawMeetings.map((m): Meeting => {
     const p = m.properties;
-    const contactId = m.associations?.contacts?.results?.[0]?.id;
-    const dealId = m.associations?.deals?.results?.[0]?.id;
-    const contact = contactId ? contacts.get(contactId) : undefined;
-    const deal = dealId ? deals.get(dealId) : undefined;
-
-    const contactName = contact
-      ? [contact.properties.firstname, contact.properties.lastname].filter(Boolean).join(' ') || 'Unknown Contact'
-      : 'Unknown Contact';
-    const company = contact?.properties.company ?? '';
-    const bookedByOwnerId = p.hubspot_owner_id; // meeting's own owner = who booked it
-    const leadOwnerId = contact?.properties.hubspot_owner_id;
-    const dealOwnerId = deal?.properties.hubspot_owner_id;
-    const leadStatus = contact?.properties.lifecyclestage ?? '';
-    const dealStage = deal?.properties.dealstage ?? '';
-
+    const ownerId = p.hubspot_owner_id ?? '';
     const hubspotOutcome = (p.hs_meeting_outcome ?? '').toUpperCase();
     const status: MeetingStatus = OUTCOME_MAP[hubspotOutcome] ?? 'booked';
+    const prospectName = extractProspectName(p.hs_meeting_title ?? '');
 
     return {
       id: m.id,
-      name: p.hs_meeting_title ?? `Meeting with ${contactName}`,
-      company,
-      bookedOn: p.hs_createdate ?? new Date().toISOString(),
-      meetingDate: p.hs_meeting_start_time
-        ? new Date(Number(p.hs_meeting_start_time)).toISOString()
-        : new Date().toISOString(),
+      name: p.hs_meeting_title ?? prospectName,
+      company: prospectName,
+      bookedOn: parseHubSpotDate(p.hs_createdate),
+      meetingDate: parseHubSpotDate(p.hs_meeting_start_time),
       status,
-      leadStatus,
-      dealStage,
-      bookedBy: ownerMap.get(bookedByOwnerId ?? '') ?? ownerMap.get(leadOwnerId ?? '') ?? 'Unassigned',
-      leadOwner: ownerMap.get(leadOwnerId ?? '') ?? contactName,
-      dealOwner: ownerMap.get(dealOwnerId ?? '') ?? ownerMap.get(leadOwnerId ?? '') ?? 'Unassigned',
-      notes: p.hs_meeting_body,
-      zoomMeetingUrl: p.hs_meeting_external_url,
-    } as Meeting & { zoomMeetingUrl?: string };
+      leadStatus: '',    // no contact associations in HubSpot for these meetings
+      dealStage: '',     // no deal associations in HubSpot for these meetings
+      // bookedBy will be overwritten by Zoom host_email in enrichWithZoomData
+      bookedBy: ownerIdToName.get(ownerId) ?? 'Unassigned',
+      leadOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
+      dealOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
+      zoomMeetingUrl: p.hs_video_conference_url,
+    };
   });
-
-  return meetings;
 }
