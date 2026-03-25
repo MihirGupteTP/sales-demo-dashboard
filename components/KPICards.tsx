@@ -47,29 +47,22 @@ export function KPICards() {
     }
     // All counts are based on unique customers (1 demo per contact)
     const deduped = deduplicateMeetingsByCustomer(meetings);
-    const booked = deduped.filter((m) => m.status === "booked").length;
+    const total = deduped.length;
+    const upcoming = deduped.filter((m) => m.status === "booked").length;
     const attended = deduped.filter((m) => m.status === "attended").length;
     const noShow = deduped.filter((m) => m.status === "no_show").length;
     const cancelled = deduped.filter((m) => m.status === "cancelled").length;
     const rescheduled = deduped.filter((m) => m.status === "rescheduled").length;
-    const total = attended + noShow;
-    const showRate = total > 0 ? Math.round((attended / total) * 100) : 0;
-    const noShowRate = total > 0 ? Math.round((noShow / total) * 100) : 0;
+    const completed = attended + noShow;
+    const showRate = completed > 0 ? Math.round((attended / completed) * 100) : 0;
+    const noShowRate = completed > 0 ? Math.round((noShow / completed) * 100) : 0;
     const avgTimeToDemo = computeAvgTimeToDemo(deduped);
-    return { booked, attended, noShow, cancelled, rescheduled, showRate, noShowRate, avgTimeToDemo };
+    return { total, upcoming, attended, noShow, cancelled, rescheduled, showRate, noShowRate, avgTimeToDemo };
   }, [allMeetings, filter, repFilter]);
 
   if (isLoading) return <KPICardsSkeleton />;
 
   const cards: KPICardDef[] = [
-    {
-      label: "Total Booked",
-      status: "booked",
-      value: stats.booked,
-      icon: <CalendarDays className="size-4" />,
-      color: "text-blue-600",
-      selectedRing: "ring-blue-400 bg-blue-50 dark:bg-blue-950/30",
-    },
     {
       label: "Attended",
       status: "attended",
@@ -78,6 +71,14 @@ export function KPICards() {
       icon: <CalendarCheck className="size-4" />,
       color: "text-green-600",
       selectedRing: "ring-green-400 bg-green-50 dark:bg-green-950/30",
+    },
+    {
+      label: "Upcoming",
+      status: "booked",
+      value: stats.upcoming,
+      icon: <CalendarDays className="size-4" />,
+      color: "text-blue-600",
+      selectedRing: "ring-blue-400 bg-blue-50 dark:bg-blue-950/30",
     },
     {
       label: "No-Show",
@@ -108,6 +109,13 @@ export function KPICards() {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-3">
+        <span className="text-3xl font-bold tabular-nums">{stats.total}</span>
+        <span className="text-sm text-muted-foreground">
+          total unique demos &nbsp;=&nbsp;
+          {stats.attended} attended + {stats.upcoming} upcoming + {stats.noShow} no-show + {stats.cancelled} cancelled + {stats.rescheduled} rescheduled
+        </span>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {cards.map((card) => {
           const isSelected = clickedStatus === card.status;

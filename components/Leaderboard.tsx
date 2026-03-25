@@ -54,14 +54,14 @@ export function Leaderboard() {
   const isLoading = meetingsLoading || repsLoading;
   const [sortKey, setSortKey] = useState<SortKey>("attended");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
-  const [teamTab, setTeamTab] = useState<SalesTeam | "All">("All");
-  const TABS: (SalesTeam | "All")[] = ["All", "SME AE", "SME SDR"];
+  const [teamTab, setTeamTab] = useState<SalesTeam>("SME AE");
+  const TABS: SalesTeam[] = ["SME AE", "SME SDR"];
 
   const repStats = useMemo(() => {
     let meetings = filterMeetings(allMeetings, filter);
     if (repFilter) meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
     return computeRepStats(deduplicateMeetingsByCustomer(meetings), reps)
-      .filter((s) => teamTab === "All" || s.rep.team === teamTab)
+      .filter((s) => s.rep.team === teamTab)
       .sort((a, b) => {
         const av = a[sortKey] as number;
         const bv = b[sortKey] as number;
@@ -134,7 +134,7 @@ export function Leaderboard() {
             <TableRow>
               <TableHead className="w-10 pl-4">#</TableHead>
               <TableHead>Rep</TableHead>
-              <TableHead><SortHeader label="Booked" k="booked" /></TableHead>
+              <TableHead><SortHeader label="Total" k="booked" /></TableHead>
               <TableHead><SortHeader label="Attended" k="attended" /></TableHead>
               <TableHead><SortHeader label="No-Show" k="noShow" /></TableHead>
               <TableHead><SortHeader label="Show Rate" k="showRate" /></TableHead>
@@ -167,15 +167,12 @@ export function Leaderboard() {
                         {s.rep.initials}
                       </div>
                       <span className="font-medium">{s.rep.name}</span>
-                      {teamTab === "All" && (
-                        <span className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                          s.rep.team === "SME AE"  ? "bg-blue-100 text-blue-700" :
-                                                     "bg-violet-100 text-violet-700"
-                        )}>
-                          {s.rep.team}
-                        </span>
-                      )}
+                      <span className={cn(
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                        s.rep.team === "SME AE" ? "bg-blue-100 text-blue-700" : "bg-violet-100 text-violet-700"
+                      )}>
+                        {s.rep.team}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell className="tabular-nums">{s.booked}</TableCell>
