@@ -5,11 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { filterMeetings, computeRepStats } from "@/lib/utils";
+import { filterMeetings, computeRepStats, deduplicateMeetingsByCustomer } from "@/lib/utils";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
 import { useReps } from "@/lib/hooks/use-reps";
-import { RepStats, SalesTeam } from "@/types";
+import { SalesTeam } from "@/types";
 import { ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
@@ -48,27 +48,31 @@ function LeaderboardSkeleton() {
 }
 
 export function Leaderboard() {
-  const { filter } = useTimeFilter();
+  const { filter, repFilter } = useTimeFilter();
   const { meetings: allMeetings, isLoading: meetingsLoading } = useMeetings();
   const { reps, isLoading: repsLoading } = useReps();
   const isLoading = meetingsLoading || repsLoading;
   const [sortKey, setSortKey] = useState<SortKey>("attended");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
   const [teamTab, setTeamTab] = useState<SalesTeam | "All">("All");
+  const TABS: (SalesTeam | "All")[] = ["All", "SME AE", "SME SDR"];
 
   const repStats = useMemo(() => {
-    const meetings = filterMeetings(allMeetings, filter);
-    return computeRepStats(meetings, reps)
+    let meetings = filterMeetings(allMeetings, filter);
+    if (repFilter) meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    return computeRepStats(deduplicateMeetingsByCustomer(meetings), reps)
       .filter((s) => teamTab === "All" || s.rep.team === teamTab)
       .sort((a, b) => {
         const av = a[sortKey] as number;
         const bv = b[sortKey] as number;
         return bv - av;
       });
-  }, [allMeetings, reps, filter, sortKey, teamTab]);
+  }, [allMeetings, reps, filter, repFilter, sortKey, teamTab]);
 
   const repMeetings = useMemo(() => {
-    const meetings = filterMeetings(allMeetings, filter);
+    let meetings = filterMeetings(allMeetings, filter);
+    if (repFilter) meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    meetings = deduplicateMeetingsByCustomer(meetings);
     const now = new Date();
     const map: Record<string, typeof meetings> = {};
     for (const m of meetings) {
@@ -78,7 +82,7 @@ export function Leaderboard() {
       }
     }
     return map;
-  }, [allMeetings, filter]);
+  }, [allMeetings, filter, repFilter]);
 
   if (isLoading) return <LeaderboardSkeleton />;
 
@@ -107,7 +111,7 @@ export function Leaderboard() {
             <CardTitle>Rep Leaderboard</CardTitle>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1">
-            {(["All", "SME", "OO", "Manager"] as const).map((tab) => (
+            {TABS.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setTeamTab(tab)}
@@ -118,7 +122,7 @@ export function Leaderboard() {
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {tab === "All" ? "All" : tab === "Manager" ? "Managers" : `${tab} Team`}
+                {tab}
               </button>
             ))}
           </div>
@@ -166,9 +170,8 @@ export function Leaderboard() {
                       {teamTab === "All" && (
                         <span className={cn(
                           "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                          s.rep.team === "SME" ? "bg-blue-100 text-blue-700" :
-                          s.rep.team === "OO"  ? "bg-violet-100 text-violet-700" :
-                                                 "bg-amber-100 text-amber-700"
+                          s.rep.team === "SME AE"  ? "bg-blue-100 text-blue-700" :
+                                                     "bg-violet-100 text-violet-700"
                         )}>
                           {s.rep.team}
                         </span>

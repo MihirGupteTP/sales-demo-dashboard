@@ -7,7 +7,7 @@ const TOKEN = process.env.HUBSPOT_PRIVATE_APP_TOKEN;
 // Only consider meetings booked on or after this date
 const DATE_FROM = new Date('2026-02-01T00:00:00.000Z').getTime();
 
-const SALES_TEAM_PREFIXES = ['Sales - SME', 'Sales - OO', 'Sales Managers'];
+const SALES_TEAM_NAMES = new Set(['Sales - SME - AE', 'Sales - SME - SDR']);
 
 function hubspotHeaders() {
   return {
@@ -26,17 +26,17 @@ interface HubSpotOwner {
 }
 
 function isSalesOwner(o: HubSpotOwner): boolean {
-  return (o.teams ?? []).some((t) =>
-    SALES_TEAM_PREFIXES.some((prefix) => t.name.startsWith(prefix))
-  );
+  return (o.teams ?? []).some((t) => SALES_TEAM_NAMES.has(t.name));
 }
 
 function ownerToRep(o: HubSpotOwner): Rep {
   const teams = (o.teams ?? []).map((t) => t.name);
-  const team: Rep['team'] =
-    teams.some((t) => t.startsWith('Sales - SME')) ? 'SME' :
-    teams.some((t) => t.startsWith('Sales - OO'))  ? 'OO'  :
-    'Manager';
+  // Use the first SME sub-team listed in HubSpot (order reflects primary role)
+  let team: Rep['team'] = 'SME SDR';
+  for (const t of teams) {
+    if (t === 'Sales - SME - AE')  { team = 'SME AE';  break; }
+    if (t === 'Sales - SME - SDR') { team = 'SME SDR'; break; }
+  }
   return {
     id: o.id,
     name: [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
@@ -181,6 +181,60 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
     after = data.paging?.next?.after;
   } while (after);
 
+  // Fetch contact associations for all meetings → get primary contact email
+  const meetingIdToContactEmail = new Map<string, string>();
+  const meetingIds = rawMeetings.map((m) => m.id);
+
+  // Batch in groups of 100 (HubSpot limit)
+  for (let i = 0; i < meetingIds.length; i += 100) {
+    const chunk = meetingIds.slice(i, i + 100);
+    try {
+      const assocRes = await fetch(`${BASE}/crm/v4/associations/meetings/contacts/batch/read`, {
+        method: 'POST',
+        headers: hubspotHeaders(),
+        body: JSON.stringify({ inputs: chunk.map((id) => ({ id })) }),
+      });
+      if (assocRes.ok) {
+        const assocData = await assocRes.json();
+        // Collect unique contact IDs and track which meeting they belong to
+        const meetingToContactIds = new Map<string, string[]>();
+        for (const result of assocData.results ?? []) {
+          const contactIds = (result.to ?? []).map((t: { toObjectId: string }) => t.toObjectId);
+          if (contactIds.length > 0) meetingToContactIds.set(result.from.id, contactIds);
+        }
+
+        // Batch read contact emails
+        const allContactIds = [...new Set([...meetingToContactIds.values()].flat())];
+        if (allContactIds.length > 0) {
+          const contactRes = await fetch(`${BASE}/crm/v3/objects/contacts/batch/read`, {
+            method: 'POST',
+            headers: hubspotHeaders(),
+            body: JSON.stringify({
+              inputs: allContactIds.map((id) => ({ id })),
+              properties: ['email'],
+            }),
+          });
+          if (contactRes.ok) {
+            const contactData = await contactRes.json();
+            const contactIdToEmail = new Map<string, string>();
+            for (const c of contactData.results ?? []) {
+              if (c.properties?.email) contactIdToEmail.set(c.id, c.properties.email.toLowerCase());
+            }
+            // Map meeting → first contact email
+            for (const [meetingId, contactIds] of meetingToContactIds) {
+              for (const cId of contactIds) {
+                const email = contactIdToEmail.get(cId);
+                if (email) { meetingIdToContactEmail.set(meetingId, email); break; }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Best-effort — if associations fail, deduplication falls back to company name
+    }
+  }
+
   const normalized: Meeting[] = [];
 
   for (const m of rawMeetings) {
@@ -216,6 +270,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       leadOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
       dealOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
       zoomMeetingUrl: p.hs_video_conference_url,
+      contactEmail: meetingIdToContactEmail.get(m.id),
       needsTypeSet: isBlankType,
     });
   }

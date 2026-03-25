@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { useTimeFilter } from "./TimeFilterContext";
 import { Meeting, MeetingStatus } from "@/types";
-import { STATUS_CONFIG, cn } from "@/lib/utils";
+import { STATUS_CONFIG, filterMeetings, cn } from "@/lib/utils";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths,
@@ -22,9 +23,16 @@ const STATUS_DOT: Record<MeetingStatus, string> = {
 };
 
 export function CalendarView() {
-  const { meetings } = useMeetings();
+  const { meetings: allMeetings } = useMeetings();
+  const { filter, repFilter } = useTimeFilter();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
+  const meetings = useMemo(() => {
+    let filtered = filterMeetings(allMeetings, filter);
+    if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    return filtered;
+  }, [allMeetings, filter, repFilter]);
 
   const meetingsByDay = useMemo(() => {
     const map: Record<string, Meeting[]> = {};

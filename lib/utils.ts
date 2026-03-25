@@ -3,27 +3,38 @@ import { twMerge } from "tailwind-merge"
 import {
   startOfDay, endOfDay, startOfWeek, endOfWeek,
   startOfMonth, endOfMonth, parseISO, isWithinInterval,
-  format
 } from 'date-fns';
+import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { Meeting, DateFilter, MeetingStatus, RepStats, Rep } from '@/types';
+
+const AZ_TZ = 'America/Phoenix'; // UTC-7, no DST
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
 export function getDateBounds(filter: DateFilter): { start: Date; end: Date } {
-  const now = new Date();
+  // Compute "now" expressed in AZ local time so day/week/month boundaries are AZ-correct
+  const nowAz = toZonedTime(new Date(), AZ_TZ);
+
+  function toUtc(azLocal: Date): Date {
+    return fromZonedTime(azLocal, AZ_TZ);
+  }
+
   switch (filter.range) {
     case 'today':
-      return { start: startOfDay(now), end: endOfDay(now) };
+      return { start: toUtc(startOfDay(nowAz)), end: toUtc(endOfDay(nowAz)) };
     case 'week':
-      return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
+      return {
+        start: toUtc(startOfWeek(nowAz, { weekStartsOn: 1 })),
+        end:   toUtc(endOfWeek(nowAz,   { weekStartsOn: 1 })),
+      };
     case 'month':
-      return { start: startOfMonth(now), end: endOfMonth(now) };
+      return { start: toUtc(startOfMonth(nowAz)), end: toUtc(endOfMonth(nowAz)) };
     case 'custom':
       return {
-        start: filter.customStart ? startOfDay(parseISO(filter.customStart)) : startOfMonth(now),
-        end: filter.customEnd ? endOfDay(parseISO(filter.customEnd)) : endOfDay(now),
+        start: filter.customStart ? toUtc(startOfDay(toZonedTime(parseISO(filter.customStart), AZ_TZ))) : toUtc(startOfMonth(nowAz)),
+        end:   filter.customEnd   ? toUtc(endOfDay(toZonedTime(parseISO(filter.customEnd),   AZ_TZ))) : toUtc(endOfDay(nowAz)),
       };
   }
 }
@@ -88,13 +99,39 @@ export function computeRepStats(meetings: Meeting[], reps: Rep[]): RepStats[] {
 }
 
 export function formatDateTime(iso: string): string {
-  return format(parseISO(iso), 'MMM d, yyyy h:mm a');
+  return formatInTimeZone(new Date(iso), AZ_TZ, 'MMM d, yyyy h:mm a');
 }
 
 export function formatDate(iso: string): string {
-  return format(parseISO(iso), 'MMM d, yyyy');
+  return formatInTimeZone(new Date(iso), AZ_TZ, 'MMM d, yyyy');
 }
 
 export function formatTime(iso: string): string {
-  return format(parseISO(iso), 'h:mm a');
+  return formatInTimeZone(new Date(iso), AZ_TZ, 'h:mm a');
+}
+
+// Returns one meeting per unique contact (by email, falling back to company name).
+// Used for commission calculations — 1 customer = 1 demo.
+export function deduplicateMeetingsByCustomer(meetings: Meeting[]): Meeting[] {
+  const byContact = new Map<string, Meeting>();
+  for (const m of meetings) {
+    const key = m.contactEmail ?? m.company.toLowerCase().trim();
+    const existing = byContact.get(key);
+    if (!existing || m.meetingDate < existing.meetingDate) {
+      byContact.set(key, m);
+    }
+  }
+  return Array.from(byContact.values());
+}
+
+// Returns average days between bookedOn and meetingDate, or null if no data.
+export function computeAvgTimeToDemo(meetings: Meeting[]): number | null {
+  const diffs: number[] = [];
+  for (const m of meetings) {
+    const diffMs = parseISO(m.meetingDate).getTime() - parseISO(m.bookedOn).getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    if (diffDays >= 0) diffs.push(diffDays);
+  }
+  if (diffs.length === 0) return null;
+  return diffs.reduce((a, b) => a + b, 0) / diffs.length;
 }

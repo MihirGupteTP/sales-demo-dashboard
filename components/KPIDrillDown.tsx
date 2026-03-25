@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
-import { filterMeetings, formatDateTime, STATUS_CONFIG } from "@/lib/utils";
+import { filterMeetings, deduplicateMeetingsByCustomer, formatDateTime, STATUS_CONFIG } from "@/lib/utils";
 import { MeetingDetailSheet } from "./MeetingDetailSheet";
 import { StatusBadge } from "./StatusBadge";
 import { Meeting } from "@/types";
@@ -42,16 +42,18 @@ function RepCell({ name, highlight = false }: { name: string; highlight?: boolea
 }
 
 export function KPIDrillDown() {
-  const { filter, clickedStatus, setClickedStatus } = useTimeFilter();
+  const { filter, clickedStatus, setClickedStatus, repFilter } = useTimeFilter();
   const { meetings: allMeetings } = useMeetings();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
   const meetings = useMemo(() => {
     if (!clickedStatus) return [];
-    return filterMeetings(allMeetings, filter)
+    let filtered = filterMeetings(allMeetings, filter);
+    if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    return deduplicateMeetingsByCustomer(filtered)
       .filter((m) => m.status === clickedStatus)
       .sort((a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime());
-  }, [allMeetings, filter, clickedStatus]);
+  }, [allMeetings, filter, repFilter, clickedStatus]);
 
   if (!clickedStatus) return null;
 

@@ -4,6 +4,7 @@ import { KPIDrillDown } from "@/components/KPIDrillDown";
 import { Leaderboard } from "@/components/Leaderboard";
 import { CalendarView } from "@/components/CalendarView";
 import { TimeFilter } from "@/components/TimeFilter";
+import { RepFilter } from "@/components/RepFilter";
 import { BarChart3, TableProperties } from "lucide-react";
 
 export default function Home() {
@@ -45,7 +46,10 @@ export default function Home() {
             <h2 className="text-xl font-semibold">Overview</h2>
             <p className="text-sm text-muted-foreground">Demo meeting performance across the team</p>
           </div>
-          <TimeFilter />
+          <div className="flex items-center gap-2">
+            <RepFilter />
+            <TimeFilter />
+          </div>
         </div>
 
         {/* KPI Cards */}

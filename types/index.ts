@@ -14,10 +14,11 @@ export interface Meeting {
   dealOwner: string;
   notes?: string;
   zoomMeetingUrl?: string;
+  contactEmail?: string;   // primary contact email from HubSpot association
   needsTypeSet?: boolean;  // true when matched by title but hs_activity_type is blank
 }
 
-export type SalesTeam = 'SME' | 'OO' | 'Manager';
+export type SalesTeam = 'SME AE' | 'SME SDR';
 
 export interface Rep {
   id: string;
