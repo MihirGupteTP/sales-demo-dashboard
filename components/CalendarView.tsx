@@ -7,14 +7,21 @@ import { useTimeFilter } from "./TimeFilterContext";
 import { Meeting, MeetingStatus } from "@/types";
 import { STATUS_CONFIG, filterMeetings, cn } from "@/lib/utils";
 import {
-  format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
-  eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths,
+  startOfMonth, endOfMonth, startOfWeek, endOfWeek,
+  eachDayOfInterval, parseISO, addMonths, subMonths,
 } from "date-fns";
 import { toZonedTime, formatInTimeZone } from "date-fns-tz";
-
-const AZ_TZ = "America/Phoenix";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
+
+const AZ_TZ = "America/Phoenix";
+
+// All calendar Day objects are toZonedTime-shifted: their UTC fields
+// represent AZ wall-clock time. Use formatInTimeZone(..., 'UTC', ...) to
+// read them correctly regardless of where the browser/server is located.
+function azFmt(day: Date, fmt: string) {
+  return formatInTimeZone(day, "UTC", fmt);
+}
 
 const STATUS_DOT: Record<MeetingStatus, string> = {
   booked: "bg-blue-500",
@@ -27,7 +34,6 @@ const STATUS_DOT: Record<MeetingStatus, string> = {
 export function CalendarView() {
   const { meetings: allMeetings } = useMeetings();
   const { filter, repFilter } = useTimeFilter();
-  // Initialise to today in AZ time so month navigation is AZ-correct
   const [currentMonth, setCurrentMonth] = useState(() => toZonedTime(new Date(), AZ_TZ));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
@@ -37,13 +43,12 @@ export function CalendarView() {
     return filtered;
   }, [allMeetings, filter, repFilter]);
 
-  // "today" in AZ — used to highlight the correct cell
+  // Today's date string in AZ timezone
   const todayKeyAz = formatInTimeZone(new Date(), AZ_TZ, "yyyy-MM-dd");
 
   const meetingsByDay = useMemo(() => {
     const map: Record<string, Meeting[]> = {};
     for (const m of meetings) {
-      // Key meetings by their AZ date, not UTC date
       const key = formatInTimeZone(new Date(m.meetingDate), AZ_TZ, "yyyy-MM-dd");
       if (!map[key]) map[key] = [];
       map[key].push(m);
@@ -59,12 +64,10 @@ export function CalendarView() {
     return eachDayOfInterval({ start, end });
   }, [currentMonth]);
 
-  const selectedMeetings = selectedDay
-    ? (meetingsByDay[format(selectedDay, "yyyy-MM-dd")] ?? [])
-    : [];
+  const currentMonthKey = azFmt(currentMonth, "yyyy-MM");
 
-  // selectedDay header label (AZ date)
-  const selectedDayLabel = selectedDay ? format(selectedDay, "EEEE, MMMM d") : "";
+  const selectedKey = selectedDay ? azFmt(selectedDay, "yyyy-MM-dd") : null;
+  const selectedMeetings = selectedKey ? (meetingsByDay[selectedKey] ?? []) : [];
 
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -84,7 +87,7 @@ export function CalendarView() {
               <ChevronLeft className="size-4" />
             </button>
             <span className="min-w-28 text-center text-sm font-medium">
-              {format(currentMonth, "MMMM yyyy")}
+              {azFmt(currentMonth, "MMMM yyyy")}
             </span>
             <button
               onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
@@ -108,13 +111,11 @@ export function CalendarView() {
         {/* Calendar grid */}
         <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border border-border">
           {calendarDays.map((day) => {
-            const key = format(day, "yyyy-MM-dd");
+            const key = azFmt(day, "yyyy-MM-dd");
             const dayMeetings = meetingsByDay[key] ?? [];
-            const isCurrentMonth = isSameMonth(day, currentMonth);
-            const isSelected = selectedDay ? isSameDay(day, selectedDay) : false;
+            const isCurrentMonth = azFmt(day, "yyyy-MM") === currentMonthKey;
+            const isSelected = key === selectedKey;
             const today = key === todayKeyAz;
-
-            // Summarize status dots (max 3 visible)
             const dots = dayMeetings.slice(0, 3);
 
             return (
@@ -135,7 +136,7 @@ export function CalendarView() {
                     !today && isCurrentMonth && "text-foreground",
                   )}
                 >
-                  {format(day, "d")}
+                  {azFmt(day, "d")}
                 </span>
                 {dayMeetings.length > 0 && (
                   <div className="flex flex-wrap gap-0.5 w-full">
@@ -176,7 +177,7 @@ export function CalendarView() {
         {selectedDay && (
           <div className="mt-4 border-t pt-4">
             <h3 className="text-sm font-semibold mb-2">
-              {selectedDayLabel}
+              {azFmt(selectedDay, "EEEE, MMMM d")}
               <span className="ml-2 text-muted-foreground font-normal">
                 ({selectedMeetings.length} meeting{selectedMeetings.length !== 1 ? "s" : ""})
               </span>
