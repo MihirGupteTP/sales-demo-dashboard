@@ -9,8 +9,10 @@ import { STATUS_CONFIG, filterMeetings, cn } from "@/lib/utils";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths,
-  isToday,
 } from "date-fns";
+import { toZonedTime, formatInTimeZone } from "date-fns-tz";
+
+const AZ_TZ = "America/Phoenix";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
 
@@ -25,7 +27,8 @@ const STATUS_DOT: Record<MeetingStatus, string> = {
 export function CalendarView() {
   const { meetings: allMeetings } = useMeetings();
   const { filter, repFilter } = useTimeFilter();
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  // Initialise to today in AZ time so month navigation is AZ-correct
+  const [currentMonth, setCurrentMonth] = useState(() => toZonedTime(new Date(), AZ_TZ));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const meetings = useMemo(() => {
@@ -34,10 +37,14 @@ export function CalendarView() {
     return filtered;
   }, [allMeetings, filter, repFilter]);
 
+  // "today" in AZ — used to highlight the correct cell
+  const todayKeyAz = formatInTimeZone(new Date(), AZ_TZ, "yyyy-MM-dd");
+
   const meetingsByDay = useMemo(() => {
     const map: Record<string, Meeting[]> = {};
     for (const m of meetings) {
-      const key = format(parseISO(m.meetingDate), "yyyy-MM-dd");
+      // Key meetings by their AZ date, not UTC date
+      const key = formatInTimeZone(new Date(m.meetingDate), AZ_TZ, "yyyy-MM-dd");
       if (!map[key]) map[key] = [];
       map[key].push(m);
     }
@@ -55,6 +62,9 @@ export function CalendarView() {
   const selectedMeetings = selectedDay
     ? (meetingsByDay[format(selectedDay, "yyyy-MM-dd")] ?? [])
     : [];
+
+  // selectedDay header label (AZ date)
+  const selectedDayLabel = selectedDay ? format(selectedDay, "EEEE, MMMM d") : "";
 
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -102,7 +112,7 @@ export function CalendarView() {
             const dayMeetings = meetingsByDay[key] ?? [];
             const isCurrentMonth = isSameMonth(day, currentMonth);
             const isSelected = selectedDay ? isSameDay(day, selectedDay) : false;
-            const today = isToday(day);
+            const today = key === todayKeyAz;
 
             // Summarize status dots (max 3 visible)
             const dots = dayMeetings.slice(0, 3);
@@ -166,7 +176,7 @@ export function CalendarView() {
         {selectedDay && (
           <div className="mt-4 border-t pt-4">
             <h3 className="text-sm font-semibold mb-2">
-              {format(selectedDay, "EEEE, MMMM d")}
+              {selectedDayLabel}
               <span className="ml-2 text-muted-foreground font-normal">
                 ({selectedMeetings.length} meeting{selectedMeetings.length !== 1 ? "s" : ""})
               </span>
@@ -188,7 +198,7 @@ export function CalendarView() {
                           <StatusBadge status={m.status} />
                         </div>
                         <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                          <span>{format(parseISO(m.meetingDate), "h:mm a")}</span>
+                          <span>{formatInTimeZone(new Date(m.meetingDate), AZ_TZ, "h:mm a")}</span>
                           <span>Lead: {m.leadOwner}</span>
                           <span>Stage: {m.dealStage}</span>
                         </div>
