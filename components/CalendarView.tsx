@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMeetings } from "@/lib/hooks/use-meetings";
 import { useTimeFilter } from "./TimeFilterContext";
@@ -36,15 +36,17 @@ export function CalendarView() {
   const { filter, repFilter } = useTimeFilter();
   const [currentMonth, setCurrentMonth] = useState(() => toZonedTime(new Date(), AZ_TZ));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [todayKeyAz, setTodayKeyAz] = useState("");
+
+  useEffect(() => {
+    setTodayKeyAz(formatInTimeZone(new Date(), AZ_TZ, "yyyy-MM-dd"));
+  }, []);
 
   const meetings = useMemo(() => {
     let filtered = filterMeetings(allMeetings, filter);
     if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
     return filtered;
   }, [allMeetings, filter, repFilter]);
-
-  // Today's date string in AZ timezone
-  const todayKeyAz = formatInTimeZone(new Date(), AZ_TZ, "yyyy-MM-dd");
 
   const meetingsByDay = useMemo(() => {
     const map: Record<string, Meeting[]> = {};
