@@ -1,4 +1,4 @@
-import { Meeting, Rep, MeetingStatus } from '@/types';
+import { Meeting, Rep, Deal, DemoStatus, MeetingStatus } from '@/types';
 import { addDays } from 'date-fns';
 
 const BASE = 'https://api.hubapi.com';
@@ -276,4 +276,70 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
   }
 
   return normalized;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Deals — KPI cards use demo_done (Demo Status) from deals
+// ────────────────────────────────────────────────────────────────────────────
+
+const DEMO_STATUS_MAP: Record<string, DemoStatus> = {
+  'No':         'scheduled',
+  'Yes':        'completed',
+  'No-Show':    'no_show',
+  'Not Needed': 'not_needed',
+};
+
+export async function fetchHubSpotDeals(): Promise<Deal[]> {
+  if (!TOKEN) throw new Error('HUBSPOT_PRIVATE_APP_TOKEN is not set');
+
+  const allOwners = await fetchAllOwners();
+  const salesOwners = allOwners.filter(isSalesOwner);
+  const ownerIdToName = new Map(
+    salesOwners.map((o) => [
+      o.id,
+      [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
+    ])
+  );
+  const salesOwnerIds = salesOwners.map((o) => o.id);
+
+  const rawDeals: { id: string; properties: Record<string, string | undefined> }[] = [];
+  let after: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      filterGroups: [{
+        filters: [
+          { propertyName: 'hubspot_owner_id', operator: 'IN', values: salesOwnerIds },
+          { propertyName: 'createdate', operator: 'GTE', value: String(DATE_FROM) },
+        ],
+      }],
+      properties: ['dealname', 'demo_done', 'demo_date', 'hubspot_owner_id', 'createdate'],
+      limit: 100,
+    };
+    if (after) body.after = after;
+
+    const res = await fetch(`${BASE}/crm/v3/objects/deals/search`, {
+      method: 'POST',
+      headers: hubspotHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HubSpot deals: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    rawDeals.push(...(data.results ?? []));
+    after = data.paging?.next?.after;
+  } while (after);
+
+  return rawDeals.map((d) => {
+    const p = d.properties;
+    const demoDoneRaw = p.demo_done ?? '';
+    return {
+      id: d.id,
+      name: p.dealname ?? '',
+      ownerId: p.hubspot_owner_id ?? '',
+      ownerName: ownerIdToName.get(p.hubspot_owner_id ?? '') ?? 'Unassigned',
+      demoStatus: DEMO_STATUS_MAP[demoDoneRaw] ?? 'unset',
+      demoDate: p.demo_date ? parseHubSpotDate(p.demo_date) : null,
+      createdAt: parseHubSpotDate(p.createdate),
+    };
+  });
 }

@@ -1,5 +1,17 @@
 export type MeetingStatus = 'booked' | 'attended' | 'no_show' | 'cancelled' | 'rescheduled';
 
+export type DemoStatus = 'scheduled' | 'completed' | 'no_show' | 'not_needed' | 'unset';
+
+export interface Deal {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+  demoStatus: DemoStatus;
+  demoDate: string | null;  // ISO string from demo_date field, null if blank
+  createdAt: string;        // ISO string from createdate
+}
+
 export interface Meeting {
   id: string;
   name: string;

@@ -5,7 +5,7 @@ import {
   startOfMonth, endOfMonth, parseISO, isWithinInterval,
 } from 'date-fns';
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
-import { Meeting, DateFilter, MeetingStatus, RepStats, Rep } from '@/types';
+import { Meeting, Deal, DateFilter, MeetingStatus, RepStats, Rep } from '@/types';
 
 const AZ_TZ = 'America/Phoenix'; // UTC-7, no DST
 
@@ -44,6 +44,15 @@ export function filterMeetings(meetings: Meeting[], filter: DateFilter): Meeting
   return meetings.filter((m) =>
     isWithinInterval(parseISO(m.meetingDate), { start, end })
   );
+}
+
+// Filter deals by demo_date (primary) or createdAt (fallback when demo_date is null)
+export function filterDeals(deals: Deal[], filter: DateFilter): Deal[] {
+  const { start, end } = getDateBounds(filter);
+  return deals.filter((d) => {
+    const date = parseISO(d.demoDate ?? d.createdAt);
+    return isWithinInterval(date, { start, end });
+  });
 }
 
 export const STATUS_CONFIG: Record<MeetingStatus, { label: string; className: string }> = {
