@@ -1,18 +1,19 @@
 import { NextResponse } from 'next/server';
-import { fetchHubSpotMeetings, fetchOwnerEmailToNameMap } from '@/lib/hubspot';
+import { fetchHubSpotMeetings, fetchOwnerEmailToNameMap, enrichMeetingsWithDealData } from '@/lib/hubspot';
 import { enrichWithZoomData } from '@/lib/zoom';
 
 export async function GET() {
   try {
-    const [meetings, emailToRepName] = await Promise.all([
+    const [rawMeetings, emailToRepName] = await Promise.all([
       fetchHubSpotMeetings(),
       fetchOwnerEmailToNameMap(),
     ]);
 
-    const enriched = await enrichWithZoomData(meetings, emailToRepName);
+    const { meetings: dealEnriched, compliance } = await enrichMeetingsWithDealData(rawMeetings);
+    const enriched = await enrichWithZoomData(dealEnriched, emailToRepName);
 
     return NextResponse.json(
-      { meetings: enriched, updatedAt: new Date().toISOString() },
+      { meetings: enriched, compliance, updatedAt: new Date().toISOString() },
       { headers: { 'Cache-Control': 's-maxage=300, stale-while-revalidate=60' } }
     );
   } catch (err) {

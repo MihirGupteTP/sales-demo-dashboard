@@ -1,11 +1,19 @@
 import useSWR from 'swr';
-import { Meeting } from '@/types';
+import { Meeting, ComplianceSummary } from '@/types';
 
 export interface MeetingsResponse {
   meetings: Meeting[];
+  compliance?: ComplianceSummary;
   updatedAt: string;
   error?: string;
 }
+
+const EMPTY_COMPLIANCE: ComplianceSummary = {
+  noDeal: [],
+  blankDemoStatus: [],
+  noContact: [],
+  noLead: [],
+};
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -17,6 +25,7 @@ export function useMeetings() {
   );
   return {
     meetings: data?.meetings ?? [],
+    compliance: data?.compliance ?? EMPTY_COMPLIANCE,
     updatedAt: data?.updatedAt,
     isLoading,
     isError: !!error || !!data?.error,

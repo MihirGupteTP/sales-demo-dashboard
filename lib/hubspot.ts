@@ -1,4 +1,4 @@
-import { Meeting, Rep, Deal, DemoStatus, MeetingStatus } from '@/types';
+import { Meeting, Rep, Deal, DemoStatus, MeetingStatus, ComplianceSummary, ComplianceIssue } from '@/types';
 import { addDays } from 'date-fns';
 
 const BASE = 'https://api.hubapi.com';
@@ -136,7 +136,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
   );
   const salesOwnerIds = allOwners.filter(isSalesOwner).map((o) => o.id);
 
-  const dateTo = addDays(new Date(), 14).getTime();
+  const dateTo = addDays(new Date(), 90).getTime();
 
   const rawMeetings: HubSpotMeeting[] = [];
   let after: string | undefined;
@@ -146,7 +146,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       filterGroups: [
         {
           filters: [
-            // Date window: Feb 1 2026 → 14 days ahead
+            // Date window: Feb 1 2026 → 90 days ahead
             { propertyName: 'hs_meeting_start_time', operator: 'GTE', value: String(DATE_FROM) },
             { propertyName: 'hs_meeting_start_time', operator: 'LTE', value: String(dateTo) },
             // Zoom meetings only
@@ -241,16 +241,11 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
     const p = m.properties;
     const activityType = p.hs_activity_type ?? '';
     const title = p.hs_meeting_title ?? '';
-    const titleHasDemo = title.toLowerCase().includes('demo');
 
-    // Include:
-    //   1. Explicitly typed as Demo — clean
-    //   2. No type set — include but flag (reps often leave blank on real demos)
-    // Exclude: any other explicit type (Followup, Call, Onboarding, etc.)
-    const NON_DEMO_TYPES = ['Followup', 'Call', 'Onboarding'];
-    const isExplicitDemo = activityType === 'Demo';
-    const isBlankType    = !activityType;
-    if (!isExplicitDemo && !isBlankType) continue;
+    // Only explicitly-typed Demo meetings count. Blank-type was sweeping in
+    // onboarding / internal / portal-config meetings and inflating the booked
+    // count. Reps must set the type for a meeting to appear on the dashboard.
+    if (activityType !== 'Demo') continue;
 
     const ownerId = p.hubspot_owner_id ?? '';
     const hubspotOutcome = (p.hs_meeting_outcome ?? '').toUpperCase();
@@ -271,7 +266,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       dealOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
       zoomMeetingUrl: p.hs_video_conference_url,
       contactEmail: meetingIdToContactEmail.get(m.id),
-      needsTypeSet: isBlankType,
+      needsTypeSet: false,
     });
   }
 
@@ -311,9 +306,10 @@ export async function fetchHubSpotDeals(): Promise<Deal[]> {
         filters: [
           { propertyName: 'hubspot_owner_id', operator: 'IN', values: salesOwnerIds },
           { propertyName: 'createdate', operator: 'GTE', value: String(DATE_FROM) },
+          { propertyName: 'pipeline', operator: 'EQ', value: 'default' },
         ],
       }],
-      properties: ['dealname', 'demo_done', 'demo_date', 'hubspot_owner_id', 'createdate'],
+      properties: ['dealname', 'demo_done', 'demo_date', 'hubspot_owner_id', 'createdate', 'hs_v2_date_entered_closedwon', 'amount'],
       limit: 100,
     };
     if (after) body.after = after;
@@ -340,6 +336,184 @@ export async function fetchHubSpotDeals(): Promise<Deal[]> {
       demoStatus: DEMO_STATUS_MAP[demoDoneRaw] ?? 'unset',
       demoDate: p.demo_date ? parseHubSpotDate(p.demo_date) : null,
       createdAt: parseHubSpotDate(p.createdate),
+      closedWonAt: p.hs_v2_date_entered_closedwon ? parseHubSpotDate(p.hs_v2_date_entered_closedwon) : null,
+      amount: parseFloat(p.amount ?? '0') || 0,
     };
   });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Deal enrichment for meetings — links meetings → deals → contacts/leads
+// ────────────────────────────────────────────────────────────────────────────
+
+async function batchAssociationRead(
+  fromType: string,
+  toType: string,
+  ids: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const res = await fetch(`${BASE}/crm/v4/associations/${fromType}/${toType}/batch/read`, {
+      method: 'POST',
+      headers: hubspotHeaders(),
+      body: JSON.stringify({ inputs: chunk.map((id) => ({ id })) }),
+    });
+    if (!res.ok) continue;
+    const data = await res.json();
+    for (const result of data.results ?? []) {
+      const toIds = (result.to ?? []).map((t: { toObjectId: string | number }) => String(t.toObjectId));
+      if (toIds.length > 0) map.set(result.from.id, toIds);
+    }
+  }
+  return map;
+}
+
+export async function enrichMeetingsWithDealData(
+  meetings: Meeting[],
+): Promise<{ meetings: Meeting[]; compliance: ComplianceSummary }> {
+  const compliance: ComplianceSummary = {
+    noDeal: [],
+    blankDemoStatus: [],
+    noContact: [],
+    noLead: [],
+  };
+
+  if (!TOKEN || meetings.length === 0) return { meetings, compliance };
+
+  // Meetings and deals are NOT directly associated in HubSpot.
+  // Join path: meeting → contact → deal (via shared contact).
+
+  // Step 1: Get meeting → contact associations (contact IDs)
+  const meetingIds = meetings.map((m) => m.id);
+  const meetingToContactIds = await batchAssociationRead('meetings', 'contacts', meetingIds);
+
+  // Step 2: Get contact → deal associations for all contacts
+  const allContactIds = [...new Set([...meetingToContactIds.values()].flat())];
+  const contactToDealIds = allContactIds.length > 0
+    ? await batchAssociationRead('contacts', 'deals', allContactIds)
+    : new Map<string, string[]>();
+
+  // Step 3: Batch-read deal properties
+  const allDealIds = [...new Set([...contactToDealIds.values()].flat())];
+  const dealMap = new Map<string, { name: string; demoDone: string; pipeline: string }>();
+
+  for (let i = 0; i < allDealIds.length; i += 100) {
+    const chunk = allDealIds.slice(i, i + 100);
+    const res = await fetch(`${BASE}/crm/v3/objects/deals/batch/read`, {
+      method: 'POST',
+      headers: hubspotHeaders(),
+      body: JSON.stringify({
+        inputs: chunk.map((id) => ({ id })),
+        properties: ['dealname', 'demo_done', 'pipeline'],
+      }),
+    });
+    if (!res.ok) continue;
+    const data = await res.json();
+    for (const d of data.results ?? []) {
+      dealMap.set(d.id, {
+        name: d.properties.dealname ?? '',
+        demoDone: d.properties.demo_done ?? '',
+        pipeline: d.properties.pipeline ?? '',
+      });
+    }
+  }
+
+  // Build contact → default-pipeline deal lookup
+  // A contact may have multiple deals; pick the one in the default pipeline
+  const contactToDeal = new Map<string, { dealId: string; name: string; demoDone: string }>();
+  for (const [contactId, dealIds] of contactToDealIds) {
+    for (const dId of dealIds) {
+      const deal = dealMap.get(dId);
+      if (deal && deal.pipeline === 'default') {
+        contactToDeal.set(contactId, { dealId: dId, name: deal.name, demoDone: deal.demoDone });
+        break;
+      }
+    }
+  }
+
+  // Step 4: Check deal → contact and deal → lead associations (compliance)
+  const defaultDealIds = [...new Set([...contactToDeal.values()].map((d) => d.dealId))];
+  let dealsWithContact = new Set<string>();
+  let dealsWithLead = new Set<string>();
+
+  if (defaultDealIds.length > 0) {
+    const [contactAssoc, leadAssoc] = await Promise.all([
+      batchAssociationRead('deals', 'contacts', defaultDealIds),
+      batchAssociationRead('deals', 'leads', defaultDealIds).catch(() => new Map<string, string[]>()),
+    ]);
+    dealsWithContact = new Set(contactAssoc.keys());
+    dealsWithLead = new Set(leadAssoc.keys());
+  }
+
+  // Step 5: Merge onto meetings + build compliance
+  const enriched = meetings.map((m) => {
+    // Find the deal via meeting → contact → deal chain
+    const contactIds = meetingToContactIds.get(m.id);
+    let matchedDealId: string | undefined;
+    let matchedDeal: { name: string; demoDone: string } | undefined;
+
+    if (contactIds) {
+      for (const cId of contactIds) {
+        const deal = contactToDeal.get(cId);
+        if (deal) {
+          matchedDealId = deal.dealId;
+          matchedDeal = deal;
+          break;
+        }
+      }
+    }
+
+    const base: ComplianceIssue = {
+      type: 'no_deal',
+      meetingId: m.id,
+      meetingName: m.name,
+      meetingDate: m.meetingDate,
+      ownerName: m.bookedBy,
+    };
+
+    if (!matchedDealId || !matchedDeal) {
+      compliance.noDeal.push({ ...base, type: 'no_deal' });
+      return m;
+    }
+
+    const demoStatus = DEMO_STATUS_MAP[matchedDeal.demoDone] as DemoStatus | undefined;
+    const hasContact = dealsWithContact.has(matchedDealId);
+    const hasLead = dealsWithLead.has(matchedDealId);
+
+    if (!matchedDeal.demoDone) {
+      compliance.blankDemoStatus.push({
+        ...base,
+        type: 'blank_demo_status',
+        dealId: matchedDealId,
+        dealName: matchedDeal.name,
+      });
+    }
+    if (!hasContact) {
+      compliance.noContact.push({
+        ...base,
+        type: 'no_contact',
+        dealId: matchedDealId,
+        dealName: matchedDeal.name,
+      });
+    }
+    if (!hasLead) {
+      compliance.noLead.push({
+        ...base,
+        type: 'no_lead',
+        dealId: matchedDealId,
+        dealName: matchedDeal.name,
+      });
+    }
+
+    return {
+      ...m,
+      dealId: matchedDealId,
+      demoStatus,
+      hasContact,
+      hasLead,
+    };
+  });
+
+  return { meetings: enriched, compliance };
 }

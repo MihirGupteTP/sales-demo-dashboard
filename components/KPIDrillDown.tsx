@@ -1,31 +1,46 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { parseISO } from "date-fns";
 import { useTimeFilter } from "./TimeFilterContext";
 import { useMeetings } from "@/lib/hooks/use-meetings";
-import { filterMeetings, deduplicateMeetingsByCustomer, formatDateTime, STATUS_CONFIG } from "@/lib/utils";
+import { filterMeetingsByBookedOn, deduplicateMeetingsByCustomer, formatDateTime } from "@/lib/utils";
 import { MeetingDetailSheet } from "./MeetingDetailSheet";
-import { StatusBadge } from "./StatusBadge";
-import { Meeting } from "@/types";
+import { CardType, Meeting } from "@/types";
 import { X, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
-const STATUS_HEADING: Record<string, string> = {
-  booked:      "Total Booked",
-  attended:    "Attended",
-  no_show:     "No-Show",
-  cancelled:   "Cancelled",
-  rescheduled: "Rescheduled",
+const CARD_HEADING: Record<CardType, string> = {
+  booked:   "Booked",
+  upcoming: "Upcoming",
+  attended: "Attended",
+  no_show:  "No Show",
 };
 
-const STATUS_ACCENT: Record<string, string> = {
-  booked:      "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20",
-  attended:    "border-green-200 bg-green-50/50 dark:bg-green-950/20",
-  no_show:     "border-red-200 bg-red-50/50 dark:bg-red-950/20",
-  cancelled:   "border-gray-200 bg-gray-50/50 dark:bg-gray-900/20",
-  rescheduled: "border-amber-200 bg-amber-50/50 dark:bg-amber-950/20",
+const CARD_BADGE: Record<CardType, string> = {
+  booked:   "bg-blue-100 text-blue-700 border-blue-200",
+  upcoming: "bg-violet-100 text-violet-700 border-violet-200",
+  attended: "bg-green-100 text-green-700 border-green-200",
+  no_show:  "bg-red-100 text-red-700 border-red-200",
 };
+
+const CARD_ACCENT: Record<CardType, string> = {
+  booked:   "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20",
+  upcoming: "border-violet-200 bg-violet-50/50 dark:bg-violet-950/20",
+  attended: "border-green-200 bg-green-50/50 dark:bg-green-950/20",
+  no_show:  "border-red-200 bg-red-50/50 dark:bg-red-950/20",
+};
+
+// Must mirror KPICards logic — keep these in sync.
+function matchesCard(m: Meeting, card: CardType, now: Date): boolean {
+  switch (card) {
+    case "booked":   return true;
+    case "upcoming": return parseISO(m.meetingDate) > now;
+    case "attended": return m.status === "attended" || m.demoStatus === "completed";
+    case "no_show":  return m.status === "no_show"  || m.demoStatus === "no_show";
+  }
+}
 
 function RepCell({ name, highlight = false }: { name: string; highlight?: boolean }) {
   return (
@@ -48,41 +63,37 @@ export function KPIDrillDown() {
 
   const meetings = useMemo(() => {
     if (!clickedStatus) return [];
-    let filtered = filterMeetings(allMeetings, filter);
+    const now = new Date();
+    let filtered = filterMeetingsByBookedOn(allMeetings, filter);
     if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
     return deduplicateMeetingsByCustomer(filtered)
-      .filter((m) => m.status === clickedStatus)
+      .filter((m) => matchesCard(m, clickedStatus, now))
       .sort((a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime());
   }, [allMeetings, filter, repFilter, clickedStatus]);
 
   if (!clickedStatus) return null;
 
-  const cfg = STATUS_CONFIG[clickedStatus];
-
   return (
     <>
       <MeetingDetailSheet meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} />
 
-      <div className={cn("rounded-xl border p-4 transition-all", STATUS_ACCENT[clickedStatus])}>
+      <div className={cn("rounded-xl border p-4 transition-all", CARD_ACCENT[clickedStatus])}>
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className={cn(
               "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-              cfg.className
+              CARD_BADGE[clickedStatus]
             )}>
-              {cfg.label}
+              {CARD_HEADING[clickedStatus]}
             </span>
-            <h3 className="font-semibold text-sm">
-              {STATUS_HEADING[clickedStatus]}
-              <span className="ml-2 text-muted-foreground font-normal">
-                — {meetings.length} meeting{meetings.length !== 1 ? "s" : ""}
-              </span>
+            <h3 className="font-semibold text-sm text-muted-foreground font-normal">
+              {meetings.length} meeting{meetings.length !== 1 ? "s" : ""}
             </h3>
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href={`/meetings?status=${clickedStatus}`}
+              href={`/meetings?card=${clickedStatus}`}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               View all <ArrowUpRight className="size-3" />

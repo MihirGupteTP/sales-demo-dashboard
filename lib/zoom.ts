@@ -50,10 +50,19 @@ async function getZoomMeetingHost(meetingId: string, token: string): Promise<str
   return (data.host_email as string | undefined)?.toLowerCase() ?? null;
 }
 
-// ── Fetch participant count for a past meeting ────────────────────────────────
-// Returns total attendees; the Zoom host is always participant[0],
-// so >= 2 means at least one external person joined.
-async function getParticipantCount(meetingId: string, token: string): Promise<number | null> {
+// Internal/host email domain — everyone else is treated as "the prospect".
+const INTERNAL_EMAIL_DOMAIN = 'truckerpath.com';
+
+interface ZoomParticipant {
+  user_email?: string;
+  email?: string;
+  name?: string;
+}
+
+// ── Fetch participant emails for a past meeting ──────────────────────────────
+// Returns lowercase emails of all participants, or null if Zoom has purged
+// the report (meetings older than ~30 days or never ended).
+async function getParticipantEmails(meetingId: string, token: string): Promise<string[] | null> {
   const res = await fetch(
     `${ZOOM_BASE}/report/meetings/${meetingId}/participants?page_size=300`,
     { headers: { Authorization: `Bearer ${token}` } }
@@ -61,16 +70,29 @@ async function getParticipantCount(meetingId: string, token: string): Promise<nu
   if (res.status === 404) return null;   // data expired or meeting never ended
   if (!res.ok) throw new Error(`Zoom participants ${meetingId}: ${res.status}`);
   const data = await res.json();
-  return (data.participants ?? []).length as number;
+  const participants = (data.participants ?? []) as ZoomParticipant[];
+  return participants
+    .map((p) => (p.user_email ?? p.email ?? '').toLowerCase())
+    .filter((e) => e.length > 0);
+}
+
+// A prospect is any participant whose email domain is NOT the internal domain.
+// Missing-email participants are ignored (Zoom sometimes omits email for
+// dial-ins or unauthenticated guests — those would otherwise inflate attended).
+function hasProspectParticipant(emails: string[]): boolean {
+  return emails.some((e) => {
+    const domain = e.split('@')[1];
+    return domain && domain !== INTERNAL_EMAIL_DOMAIN;
+  });
 }
 
 // ── Main enrichment function ──────────────────────────────────────────────────
 // For every meeting:
 //   • host_email → bookedBy (Zoom is source of truth for who booked the meeting)
 // For past meetings only (not cancelled/rescheduled):
-//   • participant count ≥ 2 → attended   (host + at least 1 external)
-//   • participant count < 2  → no_show
-//   • null (data expired)    → keep HubSpot outcome
+//   • any non-truckerpath.com participant → attended
+//   • only truckerpath.com participants   → no_show
+//   • null (data expired)                 → keep HubSpot outcome
 export async function enrichWithZoomData(
   meetings: Meeting[],
   emailToRepName: Map<string, string>
@@ -110,10 +132,9 @@ export async function enrichWithZoomData(
 
       // Determine attendance for past, non-terminal meetings
       if (isPast && !isTerminal) {
-        const count = await getParticipantCount(meetingId, token);
-        if (count !== null) {
-          // count >= 2: host + at least one external person joined
-          status = count >= 2 ? 'attended' : 'no_show';
+        const emails = await getParticipantEmails(meetingId, token);
+        if (emails !== null) {
+          status = hasProspectParticipant(emails) ? 'attended' : 'no_show';
         }
         // null = Zoom data expired; keep HubSpot status
       }

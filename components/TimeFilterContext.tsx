@@ -1,13 +1,13 @@
 "use client";
 
 import React, { createContext, useContext, useState } from "react";
-import { DateFilter, MeetingStatus } from "@/types";
+import { DateFilter, CardType } from "@/types";
 
 interface TimeFilterContextValue {
   filter: DateFilter;
   setFilter: (f: DateFilter) => void;
-  clickedStatus: MeetingStatus | null;
-  setClickedStatus: (s: MeetingStatus | null) => void;
+  clickedStatus: CardType | null;
+  setClickedStatus: (s: CardType | null) => void;
   repFilter: string | null;
   setRepFilter: (r: string | null) => void;
 }
@@ -23,7 +23,7 @@ const TimeFilterContext = createContext<TimeFilterContextValue>({
 
 export function TimeFilterProvider({ children }: { children: React.ReactNode }) {
   const [filter, setFilter] = useState<DateFilter>({ range: "month" });
-  const [clickedStatus, setClickedStatus] = useState<MeetingStatus | null>(null);
+  const [clickedStatus, setClickedStatus] = useState<CardType | null>(null);
   const [repFilter, setRepFilter] = useState<string | null>(null);
   return (
     <TimeFilterContext.Provider value={{ filter, setFilter, clickedStatus, setClickedStatus, repFilter, setRepFilter }}>

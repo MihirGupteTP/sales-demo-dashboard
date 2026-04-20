@@ -26,8 +26,8 @@ export function getDateBounds(filter: DateFilter): { start: Date; end: Date } {
       return { start: toUtc(startOfDay(nowAz)), end: toUtc(endOfDay(nowAz)) };
     case 'week':
       return {
-        start: toUtc(startOfWeek(nowAz, { weekStartsOn: 1 })),
-        end:   toUtc(endOfWeek(nowAz,   { weekStartsOn: 1 })),
+        start: toUtc(startOfWeek(nowAz, { weekStartsOn: 0 })),
+        end:   toUtc(endOfWeek(nowAz,   { weekStartsOn: 0 })),
       };
     case 'month':
       return { start: toUtc(startOfMonth(nowAz)), end: toUtc(endOfMonth(nowAz)) };
@@ -43,6 +43,15 @@ export function filterMeetings(meetings: Meeting[], filter: DateFilter): Meeting
   const { start, end } = getDateBounds(filter);
   return meetings.filter((m) =>
     isWithinInterval(parseISO(m.meetingDate), { start, end })
+  );
+}
+
+// Filter meetings by the date they were booked/created (bookedOn),
+// not the date of the meeting itself. Used by the top-of-dashboard cards.
+export function filterMeetingsByBookedOn(meetings: Meeting[], filter: DateFilter): Meeting[] {
+  const { start, end } = getDateBounds(filter);
+  return meetings.filter((m) =>
+    isWithinInterval(parseISO(m.bookedOn), { start, end })
   );
 }
 

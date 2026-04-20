@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { KPICards } from "@/components/KPICards";
+import { ComplianceSection } from "@/components/ComplianceSection";
 import { KPIDrillDown } from "@/components/KPIDrillDown";
 import { Leaderboard } from "@/components/Leaderboard";
 import { CalendarView } from "@/components/CalendarView";
@@ -54,6 +55,9 @@ export default function Home() {
 
         {/* KPI Cards */}
         <KPICards />
+
+        {/* Compliance flags */}
+        <ComplianceSection />
 
         {/* Drill-down — appears when a card is clicked */}
         <KPIDrillDown />

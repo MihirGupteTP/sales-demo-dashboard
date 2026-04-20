@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMeetings } from "@/lib/hooks/use-meetings";
 import { useTimeFilter } from "./TimeFilterContext";
 import { Meeting, MeetingStatus } from "@/types";
-import { STATUS_CONFIG, filterMeetings, cn } from "@/lib/utils";
+import { STATUS_CONFIG, cn } from "@/lib/utils";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, parseISO, addMonths, subMonths,
@@ -33,7 +33,7 @@ const STATUS_DOT: Record<MeetingStatus, string> = {
 
 export function CalendarView() {
   const { meetings: allMeetings } = useMeetings();
-  const { filter, repFilter } = useTimeFilter();
+  const { repFilter } = useTimeFilter();
   const [currentMonth, setCurrentMonth] = useState(() => toZonedTime(new Date(), AZ_TZ));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [todayKeyAz, setTodayKeyAz] = useState("");
@@ -42,11 +42,12 @@ export function CalendarView() {
     setTodayKeyAz(formatInTimeZone(new Date(), AZ_TZ, "yyyy-MM-dd"));
   }, []);
 
+  // Calendar uses all fetched meetings (not time-filtered) so month navigation works freely.
+  // Only the rep filter applies here.
   const meetings = useMemo(() => {
-    let filtered = filterMeetings(allMeetings, filter);
-    if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
-    return filtered;
-  }, [allMeetings, filter, repFilter]);
+    if (repFilter) return allMeetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    return allMeetings;
+  }, [allMeetings, repFilter]);
 
   const meetingsByDay = useMemo(() => {
     const map: Record<string, Meeting[]> = {};
@@ -61,8 +62,8 @@ export function CalendarView() {
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    const start = startOfWeek(monthStart, { weekStartsOn: 1 });
-    const end = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    const start = startOfWeek(monthStart, { weekStartsOn: 0 });
+    const end = endOfWeek(monthEnd, { weekStartsOn: 0 });
     return eachDayOfInterval({ start, end });
   }, [currentMonth]);
 
@@ -71,7 +72,7 @@ export function CalendarView() {
   const selectedKey = selectedDay ? azFmt(selectedDay, "yyyy-MM-dd") : null;
   const selectedMeetings = selectedKey ? (meetingsByDay[selectedKey] ?? []) : [];
 
-  const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   return (
     <Card>
