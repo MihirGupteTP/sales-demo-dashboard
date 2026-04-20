@@ -181,8 +181,10 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
     after = data.paging?.next?.after;
   } while (after);
 
-  // Fetch contact associations for all meetings → get primary contact email
+  // Fetch contact associations for all meetings → get primary contact email, lead status, lead owner
   const meetingIdToContactEmail = new Map<string, string>();
+  const meetingIdToLeadStatus = new Map<string, string>();
+  const meetingIdToLeadOwnerId = new Map<string, string>();
   const meetingIds = rawMeetings.map((m) => m.id);
 
   // Batch in groups of 100 (HubSpot limit)
@@ -203,7 +205,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
           if (contactIds.length > 0) meetingToContactIds.set(result.from.id, contactIds);
         }
 
-        // Batch read contact emails
+        // Batch read contact properties
         const allContactIds = [...new Set([...meetingToContactIds.values()].flat())];
         if (allContactIds.length > 0) {
           const contactRes = await fetch(`${BASE}/crm/v3/objects/contacts/batch/read`, {
@@ -211,20 +213,35 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
             headers: hubspotHeaders(),
             body: JSON.stringify({
               inputs: allContactIds.map((id) => ({ id })),
-              properties: ['email'],
+              properties: ['email', 'hs_lead_status', 'hubspot_owner_id'],
             }),
           });
           if (contactRes.ok) {
             const contactData = await contactRes.json();
-            const contactIdToEmail = new Map<string, string>();
+            const contactIdToInfo = new Map<string, { email?: string; leadStatus?: string; ownerId?: string }>();
             for (const c of contactData.results ?? []) {
-              if (c.properties?.email) contactIdToEmail.set(c.id, c.properties.email.toLowerCase());
+              const props = c.properties ?? {};
+              contactIdToInfo.set(c.id, {
+                email: props.email ? String(props.email).toLowerCase() : undefined,
+                leadStatus: props.hs_lead_status || undefined,
+                ownerId: props.hubspot_owner_id || undefined,
+              });
             }
-            // Map meeting → first contact email
+            // Map meeting → first contact with usable info
             for (const [meetingId, contactIds] of meetingToContactIds) {
               for (const cId of contactIds) {
-                const email = contactIdToEmail.get(cId);
-                if (email) { meetingIdToContactEmail.set(meetingId, email); break; }
+                const info = contactIdToInfo.get(cId);
+                if (!info) continue;
+                if (info.email && !meetingIdToContactEmail.has(meetingId)) {
+                  meetingIdToContactEmail.set(meetingId, info.email);
+                }
+                if (info.leadStatus && !meetingIdToLeadStatus.has(meetingId)) {
+                  meetingIdToLeadStatus.set(meetingId, info.leadStatus);
+                }
+                if (info.ownerId && !meetingIdToLeadOwnerId.has(meetingId)) {
+                  meetingIdToLeadOwnerId.set(meetingId, info.ownerId);
+                }
+                if (meetingIdToContactEmail.has(meetingId) && meetingIdToLeadStatus.has(meetingId) && meetingIdToLeadOwnerId.has(meetingId)) break;
               }
             }
           }
@@ -259,11 +276,11 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       bookedOn: parseHubSpotDate(p.hs_createdate),
       meetingDate: parseHubSpotDate(p.hs_meeting_start_time),
       status,
-      leadStatus: '',
+      leadStatus: meetingIdToLeadStatus.get(m.id) ?? '',
       dealStage: '',
       bookedBy: ownerIdToName.get(ownerId) ?? 'Unassigned',
-      leadOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
-      dealOwner: ownerIdToName.get(ownerId) ?? 'Unassigned',
+      leadOwner: ownerIdToName.get(meetingIdToLeadOwnerId.get(m.id) ?? '') ?? 'Unassigned',
+      dealOwner: 'Unassigned',
       zoomMeetingUrl: p.hs_video_conference_url,
       contactEmail: meetingIdToContactEmail.get(m.id),
       needsTypeSet: false,
@@ -346,6 +363,26 @@ export async function fetchHubSpotDeals(): Promise<Deal[]> {
 // Deal enrichment for meetings — links meetings → deals → contacts/leads
 // ────────────────────────────────────────────────────────────────────────────
 
+async function fetchDealStageLabels(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const res = await fetch(`${BASE}/crm/v3/pipelines/deals`, {
+      headers: hubspotHeaders(),
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return map;
+    const data = await res.json();
+    for (const pipeline of data.results ?? []) {
+      for (const stage of pipeline.stages ?? []) {
+        if (stage.id && stage.label) map.set(stage.id, stage.label);
+      }
+    }
+  } catch {
+    // Best-effort — empty map means we fall back to raw stage IDs
+  }
+  return map;
+}
+
 async function batchAssociationRead(
   fromType: string,
   toType: string,
@@ -384,6 +421,17 @@ export async function enrichMeetingsWithDealData(
   // Meetings and deals are NOT directly associated in HubSpot.
   // Join path: meeting → contact → deal (via shared contact).
 
+  const [allOwners, stageLabels] = await Promise.all([
+    fetchAllOwners(),
+    fetchDealStageLabels(),
+  ]);
+  const ownerIdToName = new Map(
+    allOwners.map((o) => [
+      o.id,
+      [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email,
+    ])
+  );
+
   // Step 1: Get meeting → contact associations (contact IDs)
   const meetingIds = meetings.map((m) => m.id);
   const meetingToContactIds = await batchAssociationRead('meetings', 'contacts', meetingIds);
@@ -396,7 +444,7 @@ export async function enrichMeetingsWithDealData(
 
   // Step 3: Batch-read deal properties
   const allDealIds = [...new Set([...contactToDealIds.values()].flat())];
-  const dealMap = new Map<string, { name: string; demoDone: string; pipeline: string }>();
+  const dealMap = new Map<string, { name: string; demoDone: string; pipeline: string; stageId: string; ownerId: string }>();
 
   for (let i = 0; i < allDealIds.length; i += 100) {
     const chunk = allDealIds.slice(i, i + 100);
@@ -405,7 +453,7 @@ export async function enrichMeetingsWithDealData(
       headers: hubspotHeaders(),
       body: JSON.stringify({
         inputs: chunk.map((id) => ({ id })),
-        properties: ['dealname', 'demo_done', 'pipeline'],
+        properties: ['dealname', 'demo_done', 'pipeline', 'dealstage', 'hubspot_owner_id'],
       }),
     });
     if (!res.ok) continue;
@@ -415,18 +463,26 @@ export async function enrichMeetingsWithDealData(
         name: d.properties.dealname ?? '',
         demoDone: d.properties.demo_done ?? '',
         pipeline: d.properties.pipeline ?? '',
+        stageId: d.properties.dealstage ?? '',
+        ownerId: d.properties.hubspot_owner_id ?? '',
       });
     }
   }
 
   // Build contact → default-pipeline deal lookup
   // A contact may have multiple deals; pick the one in the default pipeline
-  const contactToDeal = new Map<string, { dealId: string; name: string; demoDone: string }>();
+  const contactToDeal = new Map<string, { dealId: string; name: string; demoDone: string; stageId: string; ownerId: string }>();
   for (const [contactId, dealIds] of contactToDealIds) {
     for (const dId of dealIds) {
       const deal = dealMap.get(dId);
       if (deal && deal.pipeline === 'default') {
-        contactToDeal.set(contactId, { dealId: dId, name: deal.name, demoDone: deal.demoDone });
+        contactToDeal.set(contactId, {
+          dealId: dId,
+          name: deal.name,
+          demoDone: deal.demoDone,
+          stageId: deal.stageId,
+          ownerId: deal.ownerId,
+        });
         break;
       }
     }
@@ -451,7 +507,7 @@ export async function enrichMeetingsWithDealData(
     // Find the deal via meeting → contact → deal chain
     const contactIds = meetingToContactIds.get(m.id);
     let matchedDealId: string | undefined;
-    let matchedDeal: { name: string; demoDone: string } | undefined;
+    let matchedDeal: { name: string; demoDone: string; stageId: string; ownerId: string } | undefined;
 
     if (contactIds) {
       for (const cId of contactIds) {
@@ -506,12 +562,21 @@ export async function enrichMeetingsWithDealData(
       });
     }
 
+    const dealStageLabel = matchedDeal.stageId
+      ? (stageLabels.get(matchedDeal.stageId) ?? matchedDeal.stageId)
+      : '';
+    const dealOwnerName = matchedDeal.ownerId
+      ? (ownerIdToName.get(matchedDeal.ownerId) ?? 'Unassigned')
+      : 'Unassigned';
+
     return {
       ...m,
       dealId: matchedDealId,
       demoStatus,
       hasContact,
       hasLead,
+      dealStage: dealStageLabel,
+      dealOwner: dealOwnerName,
     };
   });
 
