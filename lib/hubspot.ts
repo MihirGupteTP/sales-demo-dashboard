@@ -488,10 +488,12 @@ export async function enrichMeetingsWithDealData(
     }
   }
 
-  // Step 4: Check deal → contact and deal → lead associations (compliance)
+  // Step 4: Check deal → contact and deal → lead associations (compliance + lead enrichment)
   const defaultDealIds = [...new Set([...contactToDeal.values()].map((d) => d.dealId))];
   let dealsWithContact = new Set<string>();
   let dealsWithLead = new Set<string>();
+  // dealId → { ownerId, stageLabel } from first associated Lead object
+  const dealToLeadInfo = new Map<string, { ownerId: string; stageLabel: string }>();
 
   if (defaultDealIds.length > 0) {
     const [contactAssoc, leadAssoc] = await Promise.all([
@@ -500,6 +502,65 @@ export async function enrichMeetingsWithDealData(
     ]);
     dealsWithContact = new Set(contactAssoc.keys());
     dealsWithLead = new Set(leadAssoc.keys());
+
+    // Batch-read Lead objects for owner + stage
+    const allLeadIds = [...new Set([...leadAssoc.values()].flat())];
+    const leadMap = new Map<string, { ownerId: string; stageId: string }>();
+    for (let i = 0; i < allLeadIds.length; i += 100) {
+      const chunk = allLeadIds.slice(i, i + 100);
+      try {
+        const res = await fetch(`${BASE}/crm/v3/objects/leads/batch/read`, {
+          method: 'POST',
+          headers: hubspotHeaders(),
+          body: JSON.stringify({
+            inputs: chunk.map((id) => ({ id })),
+            properties: ['hubspot_owner_id', 'hs_pipeline_stage'],
+          }),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        for (const l of data.results ?? []) {
+          leadMap.set(l.id, {
+            ownerId: l.properties?.hubspot_owner_id ?? '',
+            stageId: l.properties?.hs_pipeline_stage ?? '',
+          });
+        }
+      } catch {
+        // Best-effort — Leads object may not be enabled
+      }
+    }
+
+    // Fetch lead pipeline stage labels (best-effort)
+    const leadStageLabels = new Map<string, string>();
+    try {
+      const res = await fetch(`${BASE}/crm/v3/pipelines/leads`, {
+        headers: hubspotHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const pipeline of data.results ?? []) {
+          for (const stage of pipeline.stages ?? []) {
+            if (stage.id && stage.label) leadStageLabels.set(stage.id, stage.label);
+          }
+        }
+      }
+    } catch {
+      // Best-effort
+    }
+
+    for (const [dealId, leadIds] of leadAssoc) {
+      for (const lId of leadIds) {
+        const lead = leadMap.get(lId);
+        if (lead) {
+          dealToLeadInfo.set(dealId, {
+            ownerId: lead.ownerId,
+            stageLabel: lead.stageId ? (leadStageLabels.get(lead.stageId) ?? lead.stageId) : '',
+          });
+          break;
+        }
+      }
+    }
   }
 
   // Step 5: Merge onto meetings + build compliance
@@ -569,6 +630,12 @@ export async function enrichMeetingsWithDealData(
       ? (ownerIdToName.get(matchedDeal.ownerId) ?? 'Unassigned')
       : 'Unassigned';
 
+    // Lead object (if linked to deal) overrides contact-derived lead owner/status
+    const leadInfo = dealToLeadInfo.get(matchedDealId);
+    const leadOwnerOverride = leadInfo?.ownerId
+      ? (ownerIdToName.get(leadInfo.ownerId) ?? 'Unassigned')
+      : undefined;
+
     return {
       ...m,
       dealId: matchedDealId,
@@ -577,6 +644,8 @@ export async function enrichMeetingsWithDealData(
       hasLead,
       dealStage: dealStageLabel,
       dealOwner: dealOwnerName,
+      ...(leadOwnerOverride ? { leadOwner: leadOwnerOverride } : {}),
+      ...(leadInfo?.stageLabel ? { leadStatus: leadInfo.stageLabel } : {}),
     };
   });
 
