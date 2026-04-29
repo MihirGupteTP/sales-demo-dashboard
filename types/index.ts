@@ -61,6 +61,7 @@ export interface ComplianceIssue {
   meetingDate: string;
   dealId?: string;
   dealName?: string;
+  contactId?: string;
   ownerName: string;
 }
 

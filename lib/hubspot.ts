@@ -597,6 +597,7 @@ export async function enrichMeetingsWithDealData(
       meetingName: m.name,
       meetingDate: m.meetingDate,
       ownerName: m.bookedBy,
+      contactId: m.contactId,
     };
 
     if (!matchedDealId || !matchedDeal) {
