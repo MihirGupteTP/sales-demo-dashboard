@@ -45,7 +45,10 @@ export function CalendarView() {
   // Calendar uses all fetched meetings (not time-filtered) so month navigation works freely.
   // Only the rep filter applies here.
   const meetings = useMemo(() => {
-    if (repFilter) return allMeetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    if (repFilter.length > 0) {
+      const set = new Set(repFilter);
+      return allMeetings.filter((m) => set.has(m.leadOwner) || set.has(m.bookedBy));
+    }
     return allMeetings;
   }, [allMeetings, repFilter]);
 

@@ -27,7 +27,8 @@ export function ComplianceSection() {
   // Filter compliance issues by time range and rep
   const filtered = useMemo(() => {
     const inRange = new Set(filterMeetings(allMeetings, filter).map((m) => m.id));
-    const repMatch = (ownerName: string) => !repFilter || ownerName === repFilter;
+    const repSet = new Set(repFilter);
+    const repMatch = (ownerName: string) => repSet.size === 0 || repSet.has(ownerName);
     const keep = (c: ComplianceIssue) => inRange.has(c.meetingId) && repMatch(c.ownerName);
     return {
       noDeal: compliance.noDeal.filter(keep),

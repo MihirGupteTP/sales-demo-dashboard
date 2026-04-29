@@ -65,7 +65,10 @@ export function KPIDrillDown() {
     if (!clickedStatus) return [];
     const now = new Date();
     let filtered = filterMeetingsByBookedOn(allMeetings, filter);
-    if (repFilter) filtered = filtered.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    if (repFilter.length > 0) {
+      const set = new Set(repFilter);
+      filtered = filtered.filter((m) => set.has(m.leadOwner) || set.has(m.bookedBy));
+    }
     return deduplicateMeetingsByCustomer(filtered)
       .filter((m) => matchesCard(m, clickedStatus, now))
       .sort((a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime());

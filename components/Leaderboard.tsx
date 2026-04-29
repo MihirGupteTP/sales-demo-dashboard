@@ -59,7 +59,10 @@ export function Leaderboard() {
 
   const repStats = useMemo(() => {
     let meetings = filterMeetings(allMeetings, filter);
-    if (repFilter) meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    if (repFilter.length > 0) {
+      const set = new Set(repFilter);
+      meetings = meetings.filter((m) => set.has(m.leadOwner) || set.has(m.bookedBy));
+    }
     return computeRepStats(deduplicateMeetingsByCustomer(meetings), reps)
       .filter((s) => s.rep.team === teamTab)
       .sort((a, b) => {
@@ -71,7 +74,10 @@ export function Leaderboard() {
 
   const repMeetings = useMemo(() => {
     let meetings = filterMeetings(allMeetings, filter);
-    if (repFilter) meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    if (repFilter.length > 0) {
+      const set = new Set(repFilter);
+      meetings = meetings.filter((m) => set.has(m.leadOwner) || set.has(m.bookedBy));
+    }
     meetings = deduplicateMeetingsByCustomer(meetings);
     const now = new Date();
     const map: Record<string, typeof meetings> = {};

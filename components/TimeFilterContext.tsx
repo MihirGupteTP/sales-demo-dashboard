@@ -8,8 +8,8 @@ interface TimeFilterContextValue {
   setFilter: (f: DateFilter) => void;
   clickedStatus: CardType | null;
   setClickedStatus: (s: CardType | null) => void;
-  repFilter: string | null;
-  setRepFilter: (r: string | null) => void;
+  repFilter: string[];
+  setRepFilter: (r: string[]) => void;
 }
 
 const TimeFilterContext = createContext<TimeFilterContextValue>({
@@ -17,14 +17,14 @@ const TimeFilterContext = createContext<TimeFilterContextValue>({
   setFilter: () => {},
   clickedStatus: null,
   setClickedStatus: () => {},
-  repFilter: null,
+  repFilter: [],
   setRepFilter: () => {},
 });
 
 export function TimeFilterProvider({ children }: { children: React.ReactNode }) {
   const [filter, setFilter] = useState<DateFilter>({ range: "month" });
   const [clickedStatus, setClickedStatus] = useState<CardType | null>(null);
-  const [repFilter, setRepFilter] = useState<string | null>(null);
+  const [repFilter, setRepFilter] = useState<string[]>([]);
   return (
     <TimeFilterContext.Provider value={{ filter, setFilter, clickedStatus, setClickedStatus, repFilter, setRepFilter }}>
       {children}

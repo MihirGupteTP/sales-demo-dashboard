@@ -56,8 +56,9 @@ export function KPICards() {
     // Cards filter by bookedOn (creation date) — answers "how many demos
     // got booked in this period?" rather than "…happened in this period?"
     let meetings = filterMeetingsByBookedOn(allMeetings, filter);
-    if (repFilter) {
-      meetings = meetings.filter((m) => m.leadOwner === repFilter || m.bookedBy === repFilter);
+    if (repFilter.length > 0) {
+      const set = new Set(repFilter);
+      meetings = meetings.filter((m) => set.has(m.leadOwner) || set.has(m.bookedBy));
     }
     const now = new Date();
     const booked   = meetings.length;
@@ -74,7 +75,8 @@ export function KPICards() {
   const complianceCounts = useMemo(() => {
     const ids = new Set(filterMeetingsByBookedOn(allMeetings, filter).map((m) => m.id));
     const inRange = (meetingId: string) => ids.has(meetingId);
-    const repMatch = (ownerName: string) => !repFilter || ownerName === repFilter;
+    const repSet = new Set(repFilter);
+    const repMatch = (ownerName: string) => repSet.size === 0 || repSet.has(ownerName);
 
     return {
       noDeal: compliance.noDeal.filter((c) => inRange(c.meetingId) && repMatch(c.ownerName)).length,
