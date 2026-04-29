@@ -142,6 +142,24 @@ export function deduplicateMeetingsByCustomer(meetings: Meeting[]): Meeting[] {
   return Array.from(byContact.values());
 }
 
+// HubSpot record deep links — built from NEXT_PUBLIC_HUBSPOT_PORTAL_ID
+// Object type IDs: contact=0-1, deal=0-3, meeting=0-47, lead=0-136
+const HUBSPOT_OBJECT_TYPE_IDS = {
+  contact: '0-1',
+  deal:    '0-3',
+  meeting: '0-47',
+  lead:    '0-136',
+} as const;
+
+export function hubspotRecordUrl(
+  type: keyof typeof HUBSPOT_OBJECT_TYPE_IDS,
+  id: string | undefined | null,
+): string | null {
+  const portalId = process.env.NEXT_PUBLIC_HUBSPOT_PORTAL_ID;
+  if (!portalId || !id) return null;
+  return `https://app.hubspot.com/contacts/${portalId}/record/${HUBSPOT_OBJECT_TYPE_IDS[type]}/${id}`;
+}
+
 // Returns average days between bookedOn and meetingDate, or null if no data.
 export function computeAvgTimeToDemo(meetings: Meeting[]): number | null {
   const diffs: number[] = [];

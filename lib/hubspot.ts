@@ -183,6 +183,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
 
   // Fetch contact associations for all meetings → get primary contact email, lead status, lead owner
   const meetingIdToContactEmail = new Map<string, string>();
+  const meetingIdToContactId = new Map<string, string>();
   const meetingIdToLeadStatus = new Map<string, string>();
   const meetingIdToLeadOwnerId = new Map<string, string>();
   const meetingIds = rawMeetings.map((m) => m.id);
@@ -229,6 +230,9 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
             }
             // Map meeting → first contact with usable info
             for (const [meetingId, contactIds] of meetingToContactIds) {
+              if (contactIds.length > 0 && !meetingIdToContactId.has(meetingId)) {
+                meetingIdToContactId.set(meetingId, contactIds[0]);
+              }
               for (const cId of contactIds) {
                 const info = contactIdToInfo.get(cId);
                 if (!info) continue;
@@ -283,6 +287,7 @@ export async function fetchHubSpotMeetings(): Promise<Meeting[]> {
       dealOwner: 'Unassigned',
       zoomMeetingUrl: p.hs_video_conference_url,
       contactEmail: meetingIdToContactEmail.get(m.id),
+      contactId: meetingIdToContactId.get(m.id),
       needsTypeSet: false,
     });
   }
@@ -492,8 +497,8 @@ export async function enrichMeetingsWithDealData(
   const defaultDealIds = [...new Set([...contactToDeal.values()].map((d) => d.dealId))];
   let dealsWithContact = new Set<string>();
   let dealsWithLead = new Set<string>();
-  // dealId → { ownerId, stageLabel } from first associated Lead object
-  const dealToLeadInfo = new Map<string, { ownerId: string; stageLabel: string }>();
+  // dealId → { leadId, ownerId, stageLabel } from first associated Lead object
+  const dealToLeadInfo = new Map<string, { leadId: string; ownerId: string; stageLabel: string }>();
 
   if (defaultDealIds.length > 0) {
     const [contactAssoc, leadAssoc] = await Promise.all([
@@ -554,11 +559,16 @@ export async function enrichMeetingsWithDealData(
         const lead = leadMap.get(lId);
         if (lead) {
           dealToLeadInfo.set(dealId, {
+            leadId: lId,
             ownerId: lead.ownerId,
             stageLabel: lead.stageId ? (leadStageLabels.get(lead.stageId) ?? lead.stageId) : '',
           });
           break;
         }
+      }
+      // If no lead matched leadMap (e.g. batch read failed), still capture the first lead ID
+      if (!dealToLeadInfo.has(dealId) && leadIds.length > 0) {
+        dealToLeadInfo.set(dealId, { leadId: leadIds[0], ownerId: '', stageLabel: '' });
       }
     }
   }
@@ -644,6 +654,7 @@ export async function enrichMeetingsWithDealData(
       hasLead,
       dealStage: dealStageLabel,
       dealOwner: dealOwnerName,
+      ...(leadInfo?.leadId ? { leadId: leadInfo.leadId } : {}),
       ...(leadOwnerOverride ? { leadOwner: leadOwnerOverride } : {}),
       ...(leadInfo?.stageLabel ? { leadStatus: leadInfo.stageLabel } : {}),
     };

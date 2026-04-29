@@ -5,9 +5,9 @@ import {
 } from "@/components/ui/sheet";
 import { Meeting } from "@/types";
 import { StatusBadge } from "./StatusBadge";
-import { formatDateTime, formatDate } from "@/lib/utils";
+import { formatDateTime, formatDate, hubspotRecordUrl } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
-import { User, Briefcase, Calendar, Clock, Tag, Building2 } from "lucide-react";
+import { User, Briefcase, Calendar, Clock, Tag, Building2, ExternalLink } from "lucide-react";
 
 interface Props {
   meeting: Meeting | null;
@@ -26,7 +26,28 @@ function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: strin
   );
 }
 
+function HubSpotLink({ label, url }: { label: string; url: string | null }) {
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+    >
+      {label}
+      <ExternalLink className="size-3" />
+    </a>
+  );
+}
+
 export function MeetingDetailSheet({ meeting, onClose }: Props) {
+  const meetingUrl = hubspotRecordUrl("meeting", meeting?.id);
+  const contactUrl = hubspotRecordUrl("contact", meeting?.contactId);
+  const dealUrl    = hubspotRecordUrl("deal",    meeting?.dealId);
+  const leadUrl    = hubspotRecordUrl("lead",    meeting?.leadId);
+  const anyLink = meetingUrl || contactUrl || dealUrl || leadUrl;
+
   return (
     <Sheet open={!!meeting} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
@@ -43,6 +64,9 @@ export function MeetingDetailSheet({ meeting, onClose }: Props) {
                       ⚠ Set meeting type to Demo in HubSpot
                     </span>
                   )}
+                </span>
+                <span className="block text-[11px] text-muted-foreground mt-1 font-mono">
+                  Meeting ID: {meeting.id}
                 </span>
               </SheetDescription>
             </SheetHeader>
@@ -105,6 +129,21 @@ export function MeetingDetailSheet({ meeting, onClose }: Props) {
                   value={meeting.dealOwner}
                 />
               </div>
+
+              {anyLink && (
+                <>
+                  <Separator />
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Open in HubSpot
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    <HubSpotLink label="Meeting" url={meetingUrl} />
+                    <HubSpotLink label="Contact" url={contactUrl} />
+                    <HubSpotLink label="Deal"    url={dealUrl} />
+                    <HubSpotLink label="Lead"    url={leadUrl} />
+                  </div>
+                </>
+              )}
 
               <Separator />
 
