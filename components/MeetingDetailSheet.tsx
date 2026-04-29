@@ -42,11 +42,9 @@ function HubSpotLink({ label, url }: { label: string; url: string | null }) {
 }
 
 export function MeetingDetailSheet({ meeting, onClose }: Props) {
-  const meetingUrl = hubspotRecordUrl("meeting", meeting?.id);
   const contactUrl = hubspotRecordUrl("contact", meeting?.contactId);
   const dealUrl    = hubspotRecordUrl("deal",    meeting?.dealId);
-  const leadUrl    = hubspotRecordUrl("lead",    meeting?.leadId);
-  const anyLink = meetingUrl || contactUrl || dealUrl || leadUrl;
+  const anyLink = contactUrl || dealUrl;
 
   return (
     <Sheet open={!!meeting} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -137,10 +135,8 @@ export function MeetingDetailSheet({ meeting, onClose }: Props) {
                     Open in HubSpot
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    <HubSpotLink label="Meeting" url={meetingUrl} />
                     <HubSpotLink label="Contact" url={contactUrl} />
                     <HubSpotLink label="Deal"    url={dealUrl} />
-                    <HubSpotLink label="Lead"    url={leadUrl} />
                   </div>
                 </>
               )}
